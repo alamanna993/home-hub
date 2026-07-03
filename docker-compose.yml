@@ -40,6 +40,7 @@ services:
         condition: service_healthy
 
   backend:
+    image: ghcr.io/alamanna993/home-hub-backend:latest
     build: ./backend
     restart: unless-stopped
     environment:
@@ -67,6 +68,7 @@ services:
       - "host.docker.internal:host-gateway"
 
   bot:
+    image: ghcr.io/alamanna993/home-hub-discord-bot:latest
     build: ./bot
     restart: unless-stopped
     profiles: ["discord"]
@@ -81,6 +83,7 @@ services:
       - "host.docker.internal:host-gateway"
 
   telegram:
+    image: ghcr.io/alamanna993/home-hub-telegram:latest
     build: ./telegram
     restart: unless-stopped
     environment:
@@ -94,6 +97,7 @@ services:
       - "host.docker.internal:host-gateway"
 
   frontend:
+    image: ghcr.io/alamanna993/home-hub-frontend:latest
     build: ./frontend
     restart: unless-stopped
     ports:

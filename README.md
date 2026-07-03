@@ -10,24 +10,41 @@ Self-hosted family hub: home inventory, AI chat (local or cloud), meal planning,
 - 🤖 **Pluggable AI** — Ollama or LM Studio (local), OpenAI or Claude (cloud); switch providers from the Settings page without restarting
 - 💾 **Redundant data** — Postgres data on a folder you choose (NAS share) plus automatic nightly SQL backups with retention
 
-## Prerequisites
+## Quick Install (one line)
 
-- Docker + Docker Compose (Docker Desktop, or Container Manager on Synology / equivalent on your NAS)
-- For local AI: [Ollama](https://ollama.com) with a model pulled (`ollama pull llama3.2`), or LM Studio.
-  For cloud AI: an OpenAI or Anthropic API key. You can also configure this later in **Settings**.
+All you need is Docker and git. On Linux / macOS / a NAS shell / WSL:
 
-## Setup
+```bash
+curl -fsSL https://raw.githubusercontent.com/alamanna993/home-hub/main/install.sh | bash
+```
 
-1. Copy the env file and fill it in:
+On Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/alamanna993/home-hub/main/install.ps1 | iex
+```
+
+The script clones the repo, generates a `.env` with random secrets, pulls the prebuilt
+images from GitHub Container Registry (or builds locally if it can't), and starts everything.
+Then open **http://localhost:3000**, sign in with **`admin` / `admin`**, and the
+**setup wizard** walks you through the rest: setting a real password, checking where your
+data lives, connecting a local or cloud AI model (with a test button), and hooking up the
+Telegram bot — all from the browser.
+
+For local AI you'll want [Ollama](https://ollama.com) with a model pulled
+(`ollama pull llama3.2`) or LM Studio running; for cloud AI, an OpenAI or Anthropic API key.
+
+## Manual Setup
+
+1. Clone and create the env file:
    ```bash
+   git clone https://github.com/alamanna993/home-hub.git && cd home-hub
    cp .env.example .env
    ```
 
 2. Edit `.env` — the important ones:
    - `DB_PASSWORD` — any strong password
    - `SECRET_KEY` — random string (`python -c "import secrets; print(secrets.token_hex(32))"`)
-   - `TELEGRAM_BOT_TOKEN` — from @BotFather (optional, see below)
-   - `LLM_PROVIDER` — `ollama` | `lmstudio` | `openai` | `claude`
 
 3. Start everything:
    ```bash
@@ -38,10 +55,9 @@ Self-hosted family hub: home inventory, AI chat (local or cloud), meal planning,
    docker compose --profile discord up -d
    ```
 
-4. Open the dashboard: http://localhost:3000 — sign in with **`admin` / `admin`**.
-   A **setup wizard** walks you through the rest on first login: setting a real password,
-   checking where your data lives, connecting a local or cloud AI model (with a test button),
-   and hooking up the Telegram bot — all from the browser, no `.env` editing required.
+4. Open http://localhost:3000, sign in with **`admin` / `admin`**, follow the wizard.
+
+**Updating:** re-run the install one-liner, or `git pull && docker compose pull && docker compose up -d`.
 
 ## Where the data lives (NAS deployment)
 
