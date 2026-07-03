@@ -17,6 +17,33 @@ def find_best_item_match(name: str, db: Session):
     return db.query(Item).filter(Item.name.ilike(f"%{name}%")).first()
 
 
+FOOD_LOCATIONS = ("kitchen", "pantry", "fridge", "freezer")
+FOOD_CATEGORIES = ("grocer", "food", "produce", "spice", "baking")
+
+
+def get_food_inventory(db: Session) -> list[Item]:
+    """Items likely to be edible: in a kitchen-ish location or a food-ish category."""
+    items = db.query(Item).filter((Item.quantity.is_(None)) | (Item.quantity > 0)).all()
+    food = []
+    for item in items:
+        loc = item.location
+        loc_text = f"{loc.name} {loc.sublocation or ''}".lower() if loc else ""
+        cat_text = item.category.name.lower() if item.category else ""
+        if any(k in loc_text for k in FOOD_LOCATIONS) or any(k in cat_text for k in FOOD_CATEGORIES):
+            food.append(item)
+    return food
+
+
+def item_line(item: Item) -> str:
+    qty = f"{item.quantity:g} {item.unit or ''}".strip() if item.quantity is not None else "some"
+    loc = ""
+    if item.location:
+        loc = item.location.name
+        if item.location.sublocation:
+            loc += f" / {item.location.sublocation}"
+    return f"- {item.name} ({qty})" + (f" — in {loc}" if loc else "")
+
+
 def find_or_create_location(name: str, sublocation: str | None, db: Session) -> int | None:
     if not name:
         return None
@@ -43,7 +70,7 @@ def find_or_create_category(name: str, db: Session) -> int | None:
 
 @router.post("/")
 async def chat(req: ChatRequest, db: Session = Depends(get_db)):
-    parsed = await parse_message(req.message)
+    parsed = await parse_message(req.message, db)
     action = parsed.get("action", "unknown")
     item_name = parsed.get("item")
 
@@ -98,6 +125,21 @@ async def chat(req: ChatRequest, db: Session = Depends(get_db)):
             reply = "⚠️ **Running low:**\n" + "\n".join(lines)
         else:
             reply = "✅ Nothing is critically low right now."
+        return {"reply": reply, "action": action}
+
+    elif action == "suggest_recipes":
+        food = get_food_inventory(db)
+        if not food:
+            reply = "🍽️ I don't see any food in the inventory yet. Add items to Kitchen locations (Pantry, Fridge, Freezer) or a Groceries category and ask me again!"
+            return {"reply": reply, "action": action}
+        inventory_text = "\n".join(item_line(i) for i in food)
+        prompt = (
+            f"{req.message}\n\n"
+            "Suggest 2-3 meals I could realistically make using mostly the ingredients listed in the context. "
+            "For each meal: give a short name, the ingredients from my inventory it uses (with where each is stored), "
+            "and note any common staples I might still need. Be concise."
+        )
+        reply = await generate_response(prompt, context=f"Food currently in the house:\n{inventory_text}", db=db)
         return {"reply": reply, "action": action}
 
     elif action == "list_items":

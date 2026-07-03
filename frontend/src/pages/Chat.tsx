@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Send, Bot, User } from 'lucide-react'
 import { chat } from '../lib/api'
@@ -9,7 +10,7 @@ const SUGGESTIONS = [
   'where is my drill?',
   "do we have pasta?",
   "what's running low?",
-  'show me groceries',
+  'what can I make for dinner tonight?',
   'what food do we have?',
 ]
 
@@ -20,8 +21,17 @@ export default function Chat() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const [searchParams, setSearchParams] = useSearchParams()
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
+
+  useEffect(() => {
+    const prompt = searchParams.get('prompt')
+    if (prompt) {
+      setSearchParams({}, { replace: true })
+      send(prompt)
+    }
+  }, [])
 
   async function send(text?: string) {
     const msg = (text || input).trim()

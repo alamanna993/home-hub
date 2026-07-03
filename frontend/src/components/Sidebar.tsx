@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Package, MapPin, Tag, MessageSquare, AlertTriangle, Settings, LogOut } from 'lucide-react'
+import { LayoutDashboard, Package, MapPin, Tag, MessageSquare, AlertTriangle, CalendarDays, UtensilsCrossed, ClipboardList, Settings, LogOut } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { useAuth } from '../hooks/useAuth'
 
@@ -9,6 +9,9 @@ const links = [
   { to: '/locations', icon: MapPin, label: 'Locations' },
   { to: '/categories', icon: Tag, label: 'Categories' },
   { to: '/alerts', icon: AlertTriangle, label: 'Low Stock' },
+  { to: '/calendar', icon: CalendarDays, label: 'Calendar' },
+  { to: '/meals', icon: UtensilsCrossed, label: 'Meals' },
+  { to: '/chores', icon: ClipboardList, label: 'Chores' },
   { to: '/chat', icon: MessageSquare, label: 'Chat' },
 ]
 

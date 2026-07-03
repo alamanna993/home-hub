@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Text, Boolean
+from sqlalchemy import Column, Integer, String, Float, DateTime, Date, ForeignKey, Text, Boolean
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -73,3 +73,53 @@ class Setting(Base):
     key = Column(String(100), primary_key=True)
     value = Column(Text, nullable=True)
     description = Column(String(300), nullable=True)
+
+
+class CalendarEvent(Base):
+    __tablename__ = "calendar_events"
+
+    id = Column(Integer, primary_key=True)
+    title = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    start = Column(DateTime, nullable=False)
+    end = Column(DateTime, nullable=True)
+    all_day = Column(Boolean, default=False)
+    color = Column(String(20), nullable=True)           # hex color for the dashboard
+    created_by = Column(String(100), default="dashboard")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class MealPlan(Base):
+    __tablename__ = "meal_plans"
+
+    id = Column(Integer, primary_key=True)
+    date = Column(Date, nullable=False)
+    meal_type = Column(String(20), nullable=False, default="dinner")  # breakfast | lunch | dinner | snack
+    title = Column(String(200), nullable=False)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Chore(Base):
+    __tablename__ = "chores"
+
+    id = Column(Integer, primary_key=True)
+    title = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    assigned_to = Column(String(100), nullable=True)    # family member name
+    frequency = Column(String(20), default="weekly")    # once | daily | weekly | monthly
+    day_of_week = Column(Integer, nullable=True)        # 0=Monday .. 6=Sunday, for weekly chores
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    completions = relationship("ChoreCompletion", back_populates="chore", cascade="all, delete-orphan")
+
+
+class ChoreCompletion(Base):
+    __tablename__ = "chore_completions"
+
+    id = Column(Integer, primary_key=True)
+    chore_id = Column(Integer, ForeignKey("chores.id"), nullable=False)
+    completed_by = Column(String(100), nullable=True)
+    completed_at = Column(DateTime, default=datetime.utcnow)
+
+    chore = relationship("Chore", back_populates="completions")

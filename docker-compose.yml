@@ -7,24 +7,57 @@ services:
       POSTGRES_USER: homehub
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      # Default: Docker named volume. For a NAS, set DATA_PATH in .env to a
+      # host folder (e.g. /volume1/docker/homehub/db) to keep data outside the container.
+      - ${DATA_PATH:-postgres_data}:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "${DB_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U homehub"]
       interval: 10s
       timeout: 5s
       retries: 5
 
+  # Automatic nightly SQL dumps with retention — point BACKUP_PATH at a second
+  # disk/NAS share so the data survives loss of the primary volume.
+  db-backup:
+    image: prodrigestivill/postgres-backup-local:16
+    restart: unless-stopped
+    volumes:
+      - ${BACKUP_PATH:-./backups}:/backups
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_DB: homehub
+      POSTGRES_USER: homehub
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      SCHEDULE: ${BACKUP_SCHEDULE:-@daily}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-7}
+      BACKUP_KEEP_WEEKS: ${BACKUP_KEEP_WEEKS:-4}
+      BACKUP_KEEP_MONTHS: ${BACKUP_KEEP_MONTHS:-6}
+      HEALTHCHECK_PORT: 8080
+    depends_on:
+      db:
+        condition: service_healthy
+
   backend:
     build: ./backend
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql://homehub:${DB_PASSWORD}@db:5432/homehub
+      SECRET_KEY: ${SECRET_KEY:-change-me-to-a-long-random-string}
+      DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:-homehub}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
+      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
       OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2}
+      LMSTUDIO_HOST: ${LMSTUDIO_HOST:-http://host.docker.internal:1234}
+      LMSTUDIO_MODEL: ${LMSTUDIO_MODEL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-haiku-4-5-20251001}
     ports:
-      - "8000:8000"
+      - "${BACKEND_PORT:-8000}:8000"
     depends_on:
       db:
         condition: service_healthy
@@ -34,12 +67,25 @@ services:
   bot:
     build: ./bot
     restart: unless-stopped
+    profiles: ["discord"]
     environment:
       DISCORD_TOKEN: ${DISCORD_TOKEN}
       DISCORD_CHANNEL_ID: ${DISCORD_CHANNEL_ID}
       BACKEND_URL: http://backend:8000
-      OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-${SECRET_KEY:-change-me-to-a-long-random-string}}
+    depends_on:
+      - backend
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  telegram:
+    build: ./telegram
+    restart: unless-stopped
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_ALLOWED_CHAT_IDS: ${TELEGRAM_ALLOWED_CHAT_IDS:-}
+      BACKEND_URL: http://backend:8000
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-${SECRET_KEY:-change-me-to-a-long-random-string}}
     depends_on:
       - backend
     extra_hosts:
@@ -49,7 +95,7 @@ services:
     build: ./frontend
     restart: unless-stopped
     ports:
-      - "3000:80"
+      - "${FRONTEND_PORT:-3000}:80"
     depends_on:
       - backend
 

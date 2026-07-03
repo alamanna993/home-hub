@@ -10,6 +10,9 @@ import Locations from './pages/Locations'
 import Categories from './pages/Categories'
 import Alerts from './pages/Alerts'
 import Chat from './pages/Chat'
+import Calendar from './pages/Calendar'
+import Meals from './pages/Meals'
+import Chores from './pages/Chores'
 import Settings from './pages/Settings'
 
 function AppLayout() {
@@ -23,6 +26,9 @@ function AppLayout() {
           <Route path="/locations" element={<Locations />} />
           <Route path="/categories" element={<Categories />} />
           <Route path="/alerts" element={<Alerts />} />
+          <Route path="/calendar" element={<Calendar />} />
+          <Route path="/meals" element={<Meals />} />
+          <Route path="/chores" element={<Chores />} />
           <Route path="/chat" element={<Chat />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/" replace />} />

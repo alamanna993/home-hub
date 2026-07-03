@@ -43,4 +43,63 @@ export const createLocation = (data: { name: string; sublocation?: string }) =>
 export const createCategory = (data: { name: string; icon?: string; color?: string }) =>
   api.post<Category>('/categories/', data).then(r => r.data)
 
+// ---- Calendar ----
+export interface CalendarEvent {
+  id: number; title: string; description?: string
+  start: string; end?: string; all_day: boolean; color?: string
+}
+
+export const getEvents = (start?: string, end?: string) =>
+  api.get<CalendarEvent[]>('/calendar/', { params: { start, end } }).then(r => r.data)
+
+export const createEvent = (data: Omit<CalendarEvent, 'id'>) =>
+  api.post<CalendarEvent>('/calendar/', data).then(r => r.data)
+
+export const updateEvent = (id: number, data: Partial<CalendarEvent>) =>
+  api.patch<CalendarEvent>(`/calendar/${id}`, data).then(r => r.data)
+
+export const deleteEvent = (id: number) =>
+  api.delete(`/calendar/${id}`).then(r => r.data)
+
+// ---- Meals ----
+export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack'
+export interface Meal {
+  id: number; date: string; meal_type: MealType; title: string; notes?: string
+}
+
+export const getMeals = (start?: string, end?: string) =>
+  api.get<Meal[]>('/meals/', { params: { start, end } }).then(r => r.data)
+
+export const createMeal = (data: Omit<Meal, 'id'>) =>
+  api.post<Meal>('/meals/', data).then(r => r.data)
+
+export const updateMeal = (id: number, data: Partial<Meal>) =>
+  api.patch<Meal>(`/meals/${id}`, data).then(r => r.data)
+
+export const deleteMeal = (id: number) =>
+  api.delete(`/meals/${id}`).then(r => r.data)
+
+// ---- Chores ----
+export interface Chore {
+  id: number; title: string; description?: string
+  assigned_to?: string; frequency: 'once' | 'daily' | 'weekly' | 'monthly'
+  day_of_week?: number
+  done_this_period: boolean
+  last_completed_at?: string; last_completed_by?: string
+}
+
+export const getChores = () => api.get<Chore[]>('/chores/').then(r => r.data)
+
+export const createChore = (data: { title: string; description?: string; assigned_to?: string; frequency?: string; day_of_week?: number }) =>
+  api.post<Chore>('/chores/', data).then(r => r.data)
+
+export const completeChore = (id: number, completed_by?: string) =>
+  api.post<Chore>(`/chores/${id}/complete`, { completed_by }).then(r => r.data)
+
+export const uncompleteChore = (id: number) =>
+  api.post<Chore>(`/chores/${id}/uncomplete`, {}).then(r => r.data)
+
+export const deleteChore = (id: number) =>
+  api.delete(`/chores/${id}`).then(r => r.data)
+
 export default api

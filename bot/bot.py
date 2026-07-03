@@ -10,6 +10,7 @@ logging.basicConfig(level=logging.INFO)
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 BACKEND_URL = os.getenv("BACKEND_URL", "http://backend:8000")
+INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "")
 DISCORD_CHANNEL_ID = int(os.getenv("DISCORD_CHANNEL_ID", "0"))  # overridden at startup from DB
 
 intents = discord.Intents.default()
@@ -18,7 +19,8 @@ bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
 
 async def call_backend(path: str, method: str = "GET", json: dict = None) -> dict:
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    headers = {"X-API-Key": INTERNAL_API_KEY} if INTERNAL_API_KEY else {}
+    async with httpx.AsyncClient(timeout=30.0, headers=headers) as client:
         if method == "POST":
             r = await client.post(f"{BACKEND_URL}{path}", json=json)
         elif method == "PATCH":

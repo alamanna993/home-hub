@@ -1,6 +1,6 @@
-import httpx
 import json
-from database import settings
+import httpx
+from database import settings as env_settings
 
 SYSTEM_PROMPT = """You are a home inventory assistant. Parse the user's message and return a JSON action.
 
@@ -11,6 +11,7 @@ Available actions:
 - remove_item: user is removing/used up an item
 - list_items: user wants to see items in a category or location
 - low_stock: user wants to see what's running low
+- suggest_recipes: user asks what they can cook/make/eat with what they have (e.g. "what can I make tonight?")
 - unknown: cannot determine intent
 
 Respond ONLY with valid JSON in this format:
@@ -18,6 +19,7 @@ Respond ONLY with valid JSON in this format:
   "action": "find_item",
   "item": "milk",
   "location": null,
+  "sublocation": null,
   "category": null,
   "quantity": null,
   "unit": null,
@@ -31,50 +33,148 @@ Examples:
 - "we're out of milk" -> {"action": "update_item", "item": "milk", "quantity": 0, ...}
 - "do we have coffee?" -> {"action": "find_item", "item": "coffee", ...}
 - "what's running low?" -> {"action": "low_stock", ...}
+- "what can I make for dinner tonight?" -> {"action": "suggest_recipes", ...}
+- "what should we cook with what we have?" -> {"action": "suggest_recipes", ...}
 """
 
 
-async def parse_message(user_message: str) -> dict:
-    """Send a message to Ollama and get a structured action back."""
+def _db_setting(db, key: str, fallback: str = "") -> str:
+    if db is None:
+        return fallback
+    from models import Setting
+    row = db.query(Setting).filter(Setting.key == key).first()
+    return (row.value or fallback) if row else fallback
+
+
+def _extract_json(text: str) -> dict:
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.split("```")[1]
+        if text.startswith("json"):
+            text = text[4:]
+    return json.loads(text.strip())
+
+
+async def _parse_ollama(user_message: str, host: str, model: str) -> dict:
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        r = await client.post(
+            f"{host}/api/chat",
+            json={
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_message},
+                ],
+                "stream": False,
+                "format": "json",
+            },
+        )
+        r.raise_for_status()
+        return json.loads(r.json()["message"]["content"])
+
+
+async def _parse_openai_compat(user_message: str, api_key: str, model: str, base_url: str | None = None) -> dict:
+    from openai import AsyncOpenAI
+    kwargs = {"api_key": api_key}
+    if base_url:
+        kwargs["base_url"] = base_url
+    client = AsyncOpenAI(**kwargs)
+    response = await client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_message},
+        ],
+        response_format={"type": "json_object"},
+        max_tokens=256,
+    )
+    return json.loads(response.choices[0].message.content)
+
+
+async def _parse_claude(user_message: str, api_key: str, model: str) -> dict:
+    from anthropic import AsyncAnthropic
+    client = AsyncAnthropic(api_key=api_key)
+    response = await client.messages.create(
+        model=model,
+        max_tokens=256,
+        system=SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": user_message}],
+    )
+    return _extract_json(response.content[0].text)
+
+
+async def parse_message(user_message: str, db=None) -> dict:
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                f"{settings.ollama_host}/api/chat",
-                json={
-                    "model": settings.ollama_model,
-                    "messages": [
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": user_message},
-                    ],
-                    "stream": False,
-                    "format": "json",
-                },
-            )
-            response.raise_for_status()
-            content = response.json()["message"]["content"]
-            return json.loads(content)
+        provider = _db_setting(db, "llm_provider", env_settings.llm_provider)
+
+        if provider == "claude":
+            api_key = _db_setting(db, "anthropic_api_key", env_settings.anthropic_api_key)
+            model = _db_setting(db, "claude_model", env_settings.claude_model) or "claude-haiku-4-5-20251001"
+            return await _parse_claude(user_message, api_key, model)
+
+        elif provider == "openai":
+            api_key = _db_setting(db, "openai_api_key", env_settings.openai_api_key)
+            model = _db_setting(db, "openai_model", env_settings.openai_model) or "gpt-4o-mini"
+            return await _parse_openai_compat(user_message, api_key, model)
+
+        elif provider == "lmstudio":
+            host = _db_setting(db, "lmstudio_host", env_settings.lmstudio_host)
+            model = _db_setting(db, "lmstudio_model", env_settings.lmstudio_model) or "local-model"
+            return await _parse_openai_compat(user_message, "lm-studio", model, base_url=f"{host}/v1")
+
+        else:  # ollama
+            host = _db_setting(db, "ollama_host", env_settings.ollama_host)
+            model = _db_setting(db, "ollama_model", env_settings.ollama_model)
+            return await _parse_ollama(user_message, host, model)
+
     except Exception as e:
         return {"action": "unknown", "error": str(e), "confidence": 0}
 
 
-async def generate_response(prompt: str, context: str = "") -> str:
-    """Generate a friendly natural language response."""
+async def generate_response(prompt: str, context: str = "", db=None) -> str:
     try:
+        provider = _db_setting(db, "llm_provider", env_settings.llm_provider)
         messages = []
         if context:
             messages.append({"role": "system", "content": f"Home inventory context:\n{context}"})
         messages.append({"role": "user", "content": prompt})
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                f"{settings.ollama_host}/api/chat",
-                json={
-                    "model": settings.ollama_model,
-                    "messages": messages,
-                    "stream": False,
-                },
+        if provider == "claude":
+            from anthropic import AsyncAnthropic
+            api_key = _db_setting(db, "anthropic_api_key", env_settings.anthropic_api_key)
+            model = _db_setting(db, "claude_model", env_settings.claude_model) or "claude-haiku-4-5-20251001"
+            client = AsyncAnthropic(api_key=api_key)
+            sys_msg = messages.pop(0)["content"] if messages[0]["role"] == "system" else None
+            r = await client.messages.create(
+                model=model, max_tokens=512,
+                system=sys_msg or "",
+                messages=messages,
             )
-            response.raise_for_status()
-            return response.json()["message"]["content"]
+            return r.content[0].text
+
+        elif provider in ("openai", "lmstudio"):
+            from openai import AsyncOpenAI
+            if provider == "openai":
+                api_key = _db_setting(db, "openai_api_key", env_settings.openai_api_key)
+                model = _db_setting(db, "openai_model", env_settings.openai_model) or "gpt-4o-mini"
+                client = AsyncOpenAI(api_key=api_key)
+            else:
+                host = _db_setting(db, "lmstudio_host", env_settings.lmstudio_host)
+                model = _db_setting(db, "lmstudio_model", env_settings.lmstudio_model) or "local-model"
+                client = AsyncOpenAI(api_key="lm-studio", base_url=f"{host}/v1")
+            r = await client.chat.completions.create(model=model, messages=messages, max_tokens=512)
+            return r.choices[0].message.content
+
+        else:  # ollama
+            host = _db_setting(db, "ollama_host", env_settings.ollama_host)
+            model = _db_setting(db, "ollama_model", env_settings.ollama_model)
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                r = await client.post(
+                    f"{host}/api/chat",
+                    json={"model": model, "messages": messages, "stream": False},
+                )
+                r.raise_for_status()
+                return r.json()["message"]["content"]
+
     except Exception as e:
         return f"I couldn't process that right now. Error: {e}"

@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from database import engine, Base, settings as app_settings
-from routers import items, locations, categories, chat
+from routers import items, locations, categories, chat, calendar, meals, chores
 from routers import auth as auth_router
 from routers import settings as settings_router
 from models import Category, Location, User, Setting
@@ -26,6 +26,9 @@ app.include_router(items.router, dependencies=[Depends(get_current_user)])
 app.include_router(locations.router, dependencies=[Depends(get_current_user)])
 app.include_router(categories.router, dependencies=[Depends(get_current_user)])
 app.include_router(chat.router, dependencies=[Depends(get_current_user)])
+app.include_router(calendar.router, dependencies=[Depends(get_current_user)])
+app.include_router(meals.router, dependencies=[Depends(get_current_user)])
+app.include_router(chores.router, dependencies=[Depends(get_current_user)])
 
 
 def seed_defaults(db: Session):
@@ -62,8 +65,13 @@ def seed_defaults(db: Session):
 
     default_settings = [
         ("site_title", "HomeHub"),
+        ("llm_provider", app_settings.llm_provider),
         ("ollama_host", app_settings.ollama_host),
         ("ollama_model", app_settings.ollama_model),
+        ("lmstudio_host", app_settings.lmstudio_host),
+        ("lmstudio_model", app_settings.lmstudio_model),
+        ("openai_model", app_settings.openai_model),
+        ("claude_model", app_settings.claude_model),
     ]
     for key, value in default_settings:
         if not db.query(Setting).filter_by(key=key).first():
