@@ -96,8 +96,8 @@ export default function Login() {
         </form>
 
         <p className="text-center text-surface-muted text-xs mt-4">
-          Default: <span className="text-white font-mono">admin</span> / <span className="text-white font-mono">homehub</span>
-          <br />Change your password in Settings after signing in.
+          First time here? Sign in with <span className="text-white font-mono">admin</span> / <span className="text-white font-mono">admin</span>
+          <br />and the setup wizard will walk you through the rest.
         </p>
       </motion.div>
     </div>

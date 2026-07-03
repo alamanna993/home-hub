@@ -1,14 +1,17 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
-from database import get_db
+from database import get_db, settings as env_settings
 from models import Setting, User
-from auth import get_current_user
+from auth import get_current_user, verify_password
+import auth as auth_module
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
 SETTING_DEFINITIONS = [
+    {"key": "telegram_bot_token", "description": "Telegram bot token from @BotFather (the bot picks it up within ~30s)", "secret": True},
+    {"key": "telegram_allowed_chat_ids", "description": "Comma-separated Telegram chat IDs allowed to use the bot (send /start to the bot to see yours)", "secret": False},
     {"key": "discord_token", "description": "Discord bot token", "secret": True},
     {"key": "discord_channel_id", "description": "Discord channel ID the bot listens in", "secret": False},
     {"key": "low_stock_alert_channel", "description": "Discord channel ID for automatic low-stock alerts (leave blank to disable)", "secret": False},
@@ -72,13 +75,21 @@ def update_setting(
     return {"ok": True, "key": key}
 
 
+def require_api_key(x_api_key: Optional[str] = Header(None)):
+    if not x_api_key or x_api_key != auth_module.INTERNAL_API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
+
 @router.get("/runtime")
-def get_runtime_settings(db: Session = Depends(get_db)):
-    """Public endpoint for the bot to fetch its own config at startup."""
+def get_runtime_settings(db: Session = Depends(get_db), _=Depends(require_api_key)):
+    """Endpoint for the bot containers to fetch their config (requires X-API-Key)."""
     rows = {s.key: s.value for s in db.query(Setting).all()}
     return {
-        "discord_channel_id": rows.get("discord_channel_id", ""),
-        "low_stock_alert_channel": rows.get("low_stock_alert_channel", ""),
+        "telegram_bot_token": rows.get("telegram_bot_token", "") or "",
+        "telegram_allowed_chat_ids": rows.get("telegram_allowed_chat_ids", "") or "",
+        "discord_token": rows.get("discord_token", "") or "",
+        "discord_channel_id": rows.get("discord_channel_id", "") or "",
+        "low_stock_alert_channel": rows.get("low_stock_alert_channel", "") or "",
         "site_title": rows.get("site_title", "HomeHub"),
         "llm_provider": rows.get("llm_provider", "ollama"),
         "ollama_host": rows.get("ollama_host", ""),
@@ -88,3 +99,37 @@ def get_runtime_settings(db: Session = Depends(get_db)):
         "openai_model": rows.get("openai_model", ""),
         "claude_model": rows.get("claude_model", ""),
     }
+
+
+@router.get("/setup/status")
+def setup_status(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    rows = {s.key: s.value for s in db.query(Setting).all()}
+    return {
+        "setup_complete": rows.get("setup_complete", "false") == "true",
+        "default_password_in_use": verify_password("admin", current_user.hashed_password),
+        "data_path": env_settings.data_path or "(Docker named volume: postgres_data)",
+        "backup_path": env_settings.backup_path or "./backups (next to docker-compose.yml)",
+        "llm_provider": rows.get("llm_provider", "ollama"),
+        "telegram_configured": bool(rows.get("telegram_bot_token")),
+    }
+
+
+@router.post("/setup/complete")
+def complete_setup(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    setting = db.query(Setting).filter(Setting.key == "setup_complete").first()
+    if setting:
+        setting.value = "true"
+    else:
+        db.add(Setting(key="setup_complete", value="true"))
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/test-llm")
+async def test_llm(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    """Fire a tiny prompt at the configured provider to confirm it responds."""
+    from llm import generate_response
+    reply = await generate_response("Reply with the single word: OK", db=db)
+    if reply.startswith("I couldn't process that right now."):
+        return {"ok": False, "error": reply}
+    return {"ok": True, "reply": reply[:200]}

@@ -15,11 +15,25 @@ BACKEND_URL = os.getenv("BACKEND_URL", "http://backend:8000")
 INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "")
 ALLOWED_CHAT_IDS: set[int] = set()
 
-_raw_allowed = os.getenv("TELEGRAM_ALLOWED_CHAT_IDS", "")
-for part in _raw_allowed.split(","):
-    part = part.strip()
-    if part.lstrip("-").isdigit():
-        ALLOWED_CHAT_IDS.add(int(part))
+
+def parse_chat_ids(raw: str) -> set[int]:
+    ids = set()
+    for part in raw.split(","):
+        part = part.strip()
+        if part.lstrip("-").isdigit():
+            ids.add(int(part))
+    return ids
+
+
+def fetch_runtime_settings() -> dict:
+    """Fetch bot config saved via the web UI (setup wizard / Settings page)."""
+    r = httpx.get(
+        f"{BACKEND_URL}/settings/runtime",
+        headers={"X-API-Key": INTERNAL_API_KEY} if INTERNAL_API_KEY else {},
+        timeout=10.0,
+    )
+    r.raise_for_status()
+    return r.json()
 
 
 async def call_backend(path: str, method: str = "GET", json: dict = None) -> dict:
@@ -148,17 +162,34 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def main():
-    if not TELEGRAM_BOT_TOKEN:
-        logger.warning("TELEGRAM_BOT_TOKEN not set — Telegram bot is disabled. Sleeping.")
-        import time
-        while True:
-            time.sleep(3600)
+    import time
+
+    token = TELEGRAM_BOT_TOKEN
+    ALLOWED_CHAT_IDS.update(parse_chat_ids(os.getenv("TELEGRAM_ALLOWED_CHAT_IDS", "")))
+
+    # No token in env? Wait for one to be saved via the web setup wizard / Settings page.
+    while not token:
+        try:
+            runtime = fetch_runtime_settings()
+            token = runtime.get("telegram_bot_token", "")
+            if not ALLOWED_CHAT_IDS:
+                ALLOWED_CHAT_IDS.update(parse_chat_ids(runtime.get("telegram_allowed_chat_ids", "")))
+        except Exception as e:
+            logger.info(f"Backend not ready yet ({e})")
+        if not token:
+            logger.info("No Telegram token yet — set one in the web UI (Settings or setup wizard). Checking again in 30s.")
+            time.sleep(30)
 
     if not ALLOWED_CHAT_IDS:
-        logger.warning("TELEGRAM_ALLOWED_CHAT_IDS not set — the bot will answer ANY chat. "
-                       "Send /start to the bot to see your chat ID, then set the variable.")
+        try:
+            ALLOWED_CHAT_IDS.update(parse_chat_ids(fetch_runtime_settings().get("telegram_allowed_chat_ids", "")))
+        except Exception:
+            pass
+    if not ALLOWED_CHAT_IDS:
+        logger.warning("No allowed chat IDs configured — the bot will answer ANY chat. "
+                       "Send /start to the bot to see your chat ID, then save it in Settings.")
 
-    app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    app = Application.builder().token(token).build()
     app.add_handler(CommandHandler(["start", "help"], start_cmd))
     app.add_handler(CommandHandler("stats", stats_cmd))
     app.add_handler(CommandHandler("lowstock", lowstock_cmd))

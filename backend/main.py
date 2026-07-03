@@ -65,6 +65,7 @@ def seed_defaults(db: Session):
 
     default_settings = [
         ("site_title", "HomeHub"),
+        ("setup_complete", "false"),
         ("llm_provider", app_settings.llm_provider),
         ("ollama_host", app_settings.ollama_host),
         ("ollama_model", app_settings.ollama_model),

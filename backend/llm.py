@@ -31,6 +31,9 @@ Examples:
 - "where is my drill?" -> {"action": "find_item", "item": "drill", ...}
 - "added 2 boxes of pasta to pantry shelf 1" -> {"action": "add_item", "item": "pasta", "location": "pantry", "sublocation": "shelf 1", "quantity": 2, "unit": "boxes", ...}
 - "we're out of milk" -> {"action": "update_item", "item": "milk", "quantity": 0, ...}
+- "just bought 2 gallons of milk" -> {"action": "add_item", "item": "milk", "quantity": 2, "unit": "gallons", ...}
+- "moved the drill to the garage" -> {"action": "update_item", "item": "drill", "location": "garage", ...}
+- "throw out the broken toaster" -> {"action": "remove_item", "item": "toaster", ...}
 - "do we have coffee?" -> {"action": "find_item", "item": "coffee", ...}
 - "what's running low?" -> {"action": "low_stock", ...}
 - "what can I make for dinner tonight?" -> {"action": "suggest_recipes", ...}
@@ -73,22 +76,25 @@ async def _parse_ollama(user_message: str, host: str, model: str) -> dict:
         return json.loads(r.json()["message"]["content"])
 
 
-async def _parse_openai_compat(user_message: str, api_key: str, model: str, base_url: str | None = None) -> dict:
+async def _parse_openai_compat(user_message: str, api_key: str, model: str, base_url: str | None = None, json_mode: bool = True) -> dict:
     from openai import AsyncOpenAI
     kwargs = {"api_key": api_key}
     if base_url:
         kwargs["base_url"] = base_url
     client = AsyncOpenAI(**kwargs)
+    extra = {}
+    if json_mode:  # LM Studio rejects response_format json_object; rely on the prompt there
+        extra["response_format"] = {"type": "json_object"}
     response = await client.chat.completions.create(
         model=model,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_message},
         ],
-        response_format={"type": "json_object"},
         max_tokens=256,
+        **extra,
     )
-    return json.loads(response.choices[0].message.content)
+    return _extract_json(response.choices[0].message.content)
 
 
 async def _parse_claude(user_message: str, api_key: str, model: str) -> dict:
@@ -120,7 +126,7 @@ async def parse_message(user_message: str, db=None) -> dict:
         elif provider == "lmstudio":
             host = _db_setting(db, "lmstudio_host", env_settings.lmstudio_host)
             model = _db_setting(db, "lmstudio_model", env_settings.lmstudio_model) or "local-model"
-            return await _parse_openai_compat(user_message, "lm-studio", model, base_url=f"{host}/v1")
+            return await _parse_openai_compat(user_message, "lm-studio", model, base_url=f"{host}/v1", json_mode=False)
 
         else:  # ollama
             host = _db_setting(db, "ollama_host", env_settings.ollama_host)

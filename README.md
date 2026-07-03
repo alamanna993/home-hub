@@ -38,7 +38,10 @@ Self-hosted family hub: home inventory, AI chat (local or cloud), meal planning,
    docker compose --profile discord up -d
    ```
 
-4. Open the dashboard: http://localhost:3000 — default login `admin` / `homehub` (change it in Settings).
+4. Open the dashboard: http://localhost:3000 — sign in with **`admin` / `admin`**.
+   A **setup wizard** walks you through the rest on first login: setting a real password,
+   checking where your data lives, connecting a local or cloud AI model (with a test button),
+   and hooking up the Telegram bot — all from the browser, no `.env` editing required.
 
 ## Where the data lives (NAS deployment)
 
@@ -62,25 +65,26 @@ Choose and configure the provider on the **Settings** page (admin) — or via `.
 | Provider | Type | Notes |
 |----------|------|-------|
 | Ollama | local | `OLLAMA_HOST` (default `http://host.docker.internal:11434`), any pulled model |
-| LM Studio | local | OpenAI-compatible server on port 1234 |
+| LM Studio | local | server on port 1234; leave model blank to use whatever is loaded |
 | OpenAI | cloud | needs `OPENAI_API_KEY` |
 | Claude | cloud | needs `ANTHROPIC_API_KEY` |
 
-Changes made in Settings take effect immediately — no restart needed.
+Changes made in Settings take effect immediately — no restart needed. Use the wizard's
+**Test Connection** button (or Settings) to confirm the model responds before relying on it.
 
 ## Telegram Bot
 
-1. Message **@BotFather** on Telegram → `/newbot` → copy the token into `TELEGRAM_BOT_TOKEN`
-2. `docker compose up -d telegram`
+1. Message **@BotFather** on Telegram → `/newbot` → copy the token
+2. Paste it into the **setup wizard** (or Settings → Telegram) — the bot picks it up within ~30s.
+   (Setting `TELEGRAM_BOT_TOKEN` in `.env` works too.)
 3. Send `/start` to your bot — it replies with your **chat ID**
-4. Put that ID into `TELEGRAM_ALLOWED_CHAT_IDS` in `.env` (comma-separated for family members) and
-   `docker compose up -d telegram` again — now only your family can use it
+4. Save that ID under Allowed Chat IDs (comma-separated for family) so only your family can use it
 
-Then just talk to it:
-- `where is my drill?`
-- `added 2 boxes of pasta to pantry shelf 1`
-- `we're out of milk`
-- `what can I make for dinner tonight?`
+**The bot doesn't just answer — it updates the database.** Text it from the store:
+- `just bought 2 gallons of milk` → added to inventory
+- `we're out of eggs` → quantity set to 0 (kept on the list so you restock)
+- `moved the drill to the garage` → location updated
+- `where is my drill?`, `what can I make for dinner tonight?`
 - `/stats`, `/lowstock`, `/find drill`, `/help`
 
 ## Usage

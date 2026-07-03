@@ -185,4 +185,23 @@ async def find_cmd(ctx: commands.Context, *, name: str):
 
 
 if __name__ == "__main__":
-    bot.run(DISCORD_TOKEN)
+    import time
+
+    token = DISCORD_TOKEN
+    # No token in env? Wait for one to be saved via the web setup wizard / Settings page.
+    while not token:
+        try:
+            r = httpx.get(
+                f"{BACKEND_URL}/settings/runtime",
+                headers={"X-API-Key": INTERNAL_API_KEY} if INTERNAL_API_KEY else {},
+                timeout=10.0,
+            )
+            r.raise_for_status()
+            token = r.json().get("discord_token", "")
+        except Exception as e:
+            logging.info(f"Backend not ready yet ({e})")
+        if not token:
+            logging.info("No Discord token yet — set one in the web UI. Checking again in 30s.")
+            time.sleep(30)
+
+    bot.run(token)

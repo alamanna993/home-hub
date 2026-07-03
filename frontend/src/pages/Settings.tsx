@@ -14,6 +14,8 @@ interface Setting {
 }
 
 const LABELS: Record<string, string> = {
+  telegram_bot_token: 'Telegram Bot Token',
+  telegram_allowed_chat_ids: 'Allowed Telegram Chat IDs',
   discord_token: 'Discord Bot Token',
   discord_channel_id: 'Discord Channel ID',
   low_stock_alert_channel: 'Low Stock Alert Channel ID',
@@ -44,6 +46,7 @@ const PROVIDER_FIELDS: Record<string, string[]> = {
 }
 
 const GROUPS = [
+  { label: '✈️ Telegram', keys: ['telegram_bot_token', 'telegram_allowed_chat_ids'] },
   { label: '🤖 Discord', keys: ['discord_token', 'discord_channel_id', 'low_stock_alert_channel'] },
   { label: '🎨 Dashboard', keys: ['site_title'] },
 ]
@@ -280,7 +283,8 @@ export default function Settings() {
       </motion.div>
 
       <p className="text-surface-muted text-xs text-center pb-4">
-        Changes to Discord and Ollama settings take effect when the bot next restarts.
+        AI provider changes apply instantly. A newly added Telegram/Discord token is picked up within ~30s;
+        changing an existing token needs a bot restart (<span className="font-mono">docker compose restart telegram</span>).
       </p>
     </div>
   )

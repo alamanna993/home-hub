@@ -6,8 +6,12 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     database_url: str = "postgresql://homehub:homehub@localhost:5432/homehub"
     secret_key: str = "change-me-to-a-long-random-string"
-    default_admin_password: str = "homehub"
+    default_admin_password: str = "admin"
     internal_api_key: str = ""  # shared secret for bot containers; falls back to secret_key
+
+    # Informational, shown in the setup wizard (set by docker-compose)
+    data_path: str = ""
+    backup_path: str = ""
 
     # LLM provider: ollama | lmstudio | openai | claude
     llm_provider: str = "ollama"

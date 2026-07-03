@@ -45,8 +45,10 @@ services:
     environment:
       DATABASE_URL: postgresql://homehub:${DB_PASSWORD}@db:5432/homehub
       SECRET_KEY: ${SECRET_KEY:-change-me-to-a-long-random-string}
-      DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:-homehub}
+      DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:-admin}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
+      DATA_PATH: ${DATA_PATH:-}
+      BACKUP_PATH: ${BACKUP_PATH:-}
       LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
       OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2}

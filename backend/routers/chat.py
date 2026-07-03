@@ -105,14 +105,44 @@ async def chat(req: ChatRequest, db: Session = Depends(get_db)):
         return {"reply": reply, "action": action, "item": result}
 
     elif action == "update_item" and item_name:
+        from models import AuditLog
         item = find_best_item_match(item_name, db)
         if item:
+            changes = []
             if parsed.get("quantity") is not None:
                 item.quantity = parsed["quantity"]
-                db.commit()
-            reply = f"✅ Updated **{item.name}** — qty now {item.quantity}."
+                changes.append(f"qty → {item.quantity:g}")
+            if parsed.get("location"):
+                loc_id = find_or_create_location(parsed["location"], parsed.get("sublocation"), db)
+                if loc_id:
+                    item.location_id = loc_id
+                    loc = db.query(Location).filter(Location.id == loc_id).first()
+                    loc_str = loc.name + (f" / {loc.sublocation}" if loc.sublocation else "")
+                    changes.append(f"moved to {loc_str}")
+            if parsed.get("notes"):
+                item.notes = parsed["notes"]
+                changes.append("notes updated")
+            db.add(AuditLog(action="updated", item_name=item.name, changed_by=req.source, details="; ".join(changes) or "no changes"))
+            db.commit()
+            if changes:
+                reply = f"✅ Updated **{item.name}** — {', '.join(changes)}."
+            else:
+                reply = f"🤔 Found **{item.name}** but I'm not sure what to change about it."
         else:
             reply = f"❌ Couldn't find **{item_name}** to update."
+        return {"reply": reply, "action": action, "parsed": parsed}
+
+    elif action == "remove_item" and item_name:
+        # Soft remove: a misheard chat message must never destroy a record.
+        from models import AuditLog
+        item = find_best_item_match(item_name, db)
+        if item:
+            item.quantity = 0
+            db.add(AuditLog(action="updated", item_name=item.name, changed_by=req.source, details="marked as gone (qty 0) via chat"))
+            db.commit()
+            reply = f"🗑️ Marked **{item.name}** as gone (qty 0) — it stays on the list so you remember to restock. Delete it for good from the Inventory page."
+        else:
+            reply = f"❌ Couldn't find **{item_name}** to remove."
         return {"reply": reply, "action": action, "parsed": parsed}
 
     elif action == "low_stock":

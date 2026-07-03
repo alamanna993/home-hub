@@ -1,6 +1,9 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { useEffect } from 'react'
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
+import axios from 'axios'
 import { AuthProvider } from './hooks/useAuth'
+import Setup from './pages/Setup'
 import ProtectedRoute from './components/ProtectedRoute'
 import Sidebar from './components/Sidebar'
 import Login from './pages/Login'
@@ -16,6 +19,14 @@ import Chores from './pages/Chores'
 import Settings from './pages/Settings'
 
 function AppLayout() {
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    axios.get('/api/settings/setup/status')
+      .then(r => { if (!r.data.setup_complete) navigate('/setup', { replace: true }) })
+      .catch(() => {})
+  }, [])
+
   return (
     <div className="flex min-h-screen bg-surface">
       <Sidebar />
@@ -49,6 +60,11 @@ export default function App() {
       />
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/setup" element={
+          <ProtectedRoute>
+            <Setup />
+          </ProtectedRoute>
+        } />
         <Route path="/*" element={
           <ProtectedRoute>
             <AppLayout />
