@@ -10,6 +10,7 @@ class Location(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String(100), nullable=False)          # e.g. "Kitchen"
     sublocation = Column(String(100), nullable=True)    # e.g. "Pantry Shelf 2"
+    icon = Column(String(50), nullable=True)            # emoji shown on the Locations page
     description = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 

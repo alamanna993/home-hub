@@ -25,7 +25,7 @@ api.interceptors.response.use(r => r, onUnauthorized)
 axios.interceptors.request.use(attachToken)
 axios.interceptors.response.use(r => r, onUnauthorized)
 
-export interface Location { id: number; name: string; sublocation?: string; description?: string; item_count: number }
+export interface Location { id: number; name: string; sublocation?: string; icon?: string; description?: string; item_count: number }
 export interface Category { id: number; name: string; icon?: string; color?: string }
 export interface Item {
   id: number; name: string; description?: string
@@ -60,11 +60,14 @@ export const deleteItem = (id: number) =>
 export const chat = (message: string) =>
   api.post<{ reply: string; action: string }>('/chat/', { message, source: 'dashboard' }).then(r => r.data)
 
-export const createLocation = (data: { name: string; sublocation?: string }) =>
+export const createLocation = (data: { name: string; sublocation?: string; icon?: string }) =>
   api.post<Location>('/locations/', data).then(r => r.data)
 
-export const updateLocation = (id: number, data: { name?: string; sublocation?: string; description?: string }) =>
+export const updateLocation = (id: number, data: { name?: string; sublocation?: string; icon?: string; description?: string }) =>
   api.patch<Location>(`/locations/${id}`, data).then(r => r.data)
+
+export const updateCategory = (id: number, data: { name?: string; icon?: string; color?: string }) =>
+  api.patch<Category>(`/categories/${id}`, data).then(r => r.data)
 
 export const createCategory = (data: { name: string; icon?: string; color?: string }) =>
   api.post<Category>('/categories/', data).then(r => r.data)

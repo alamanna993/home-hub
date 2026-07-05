@@ -11,12 +11,14 @@ router = APIRouter(prefix="/locations", tags=["locations"])
 class LocationCreate(BaseModel):
     name: str
     sublocation: Optional[str] = None
+    icon: Optional[str] = None
     description: Optional[str] = None
 
 
 class LocationUpdate(BaseModel):
     name: Optional[str] = None
     sublocation: Optional[str] = None
+    icon: Optional[str] = None
     description: Optional[str] = None
 
 
@@ -28,6 +30,7 @@ def list_locations(db: Session = Depends(get_db)):
             "id": loc.id,
             "name": loc.name,
             "sublocation": loc.sublocation,
+            "icon": loc.icon,
             "description": loc.description,
             "item_count": len(loc.items),
         }
@@ -41,7 +44,7 @@ def create_location(data: LocationCreate, db: Session = Depends(get_db)):
     db.add(loc)
     db.commit()
     db.refresh(loc)
-    return {"id": loc.id, "name": loc.name, "sublocation": loc.sublocation}
+    return {"id": loc.id, "name": loc.name, "sublocation": loc.sublocation, "icon": loc.icon}
 
 
 @router.patch("/{location_id}")
@@ -56,7 +59,7 @@ def update_location(location_id: int, data: LocationUpdate, db: Session = Depend
         setattr(loc, field, value.strip() if isinstance(value, str) else value)
     db.commit()
     db.refresh(loc)
-    return {"id": loc.id, "name": loc.name, "sublocation": loc.sublocation, "description": loc.description}
+    return {"id": loc.id, "name": loc.name, "sublocation": loc.sublocation, "icon": loc.icon, "description": loc.description}
 
 
 @router.delete("/{location_id}")
