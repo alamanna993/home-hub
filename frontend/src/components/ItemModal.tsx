@@ -139,7 +139,9 @@ export default function ItemModal({ item, categories, locations, onClose, onSave
                   <label className="text-xs text-surface-muted mb-1 block">Alert when quantity is at or below</label>
                   <input type="number" className="w-full bg-surface-card border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
                     value={form.low_stock_threshold} onChange={e => set('low_stock_threshold', e.target.value)}
-                    placeholder="Blank = alert only when out (0)" />
+                    placeholder={/kitchen|laundry|pantry|fridge|freezer/i.test(selectedLocName)
+                      ? 'Blank = alert when down to the last 1'
+                      : 'Blank = alert only when out (0)'} />
                 </div>
               )}
             </div>

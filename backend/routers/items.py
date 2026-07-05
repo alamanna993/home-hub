@@ -27,10 +27,20 @@ def is_tracked(item: Item) -> bool:
     return bool(item.track_stock)
 
 
+# Kitchen/laundry consumables alert when down to the last one; elsewhere only when out
+THRESHOLD_ONE_LOCATIONS = ("kitchen", "laundry", "pantry", "fridge", "freezer")
+
+
+def default_threshold(item: Item) -> float:
+    if item.location and any(p in item.location.name.lower() for p in THRESHOLD_ONE_LOCATIONS):
+        return 1
+    return 0
+
+
 def is_low(item: Item) -> bool:
     if not is_tracked(item) or item.quantity is None:
         return False
-    threshold = item.low_stock_threshold if item.low_stock_threshold is not None else 0
+    threshold = item.low_stock_threshold if item.low_stock_threshold is not None else default_threshold(item)
     return item.quantity <= threshold
 
 
