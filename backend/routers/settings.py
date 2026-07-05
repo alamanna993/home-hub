@@ -102,6 +102,15 @@ def get_runtime_settings(db: Session = Depends(get_db), _=Depends(require_api_ke
     }
 
 
+@router.post("/clear-activity")
+def clear_activity(db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    """Wipe the Recent Activity feed (audit log) — inventory items are untouched."""
+    from models import AuditLog
+    deleted = db.query(AuditLog).delete()
+    db.commit()
+    return {"ok": True, "deleted": deleted}
+
+
 @router.get("/calendar-feed")
 def calendar_feed_info(db: Session = Depends(get_db), _: User = Depends(require_admin)):
     """The token for HomeHub's outgoing ICS feed, so the UI can show the subscribe URL."""

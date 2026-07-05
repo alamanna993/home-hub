@@ -169,6 +169,38 @@ function CalendarFeedSection() {
   )
 }
 
+function MaintenanceSection() {
+  const [busy, setBusy] = useState(false)
+
+  async function clearActivity() {
+    if (!confirm('Clear the Recent Activity feed on the dashboard? Inventory items are NOT affected.')) return
+    setBusy(true)
+    try {
+      const { data } = await axios.post('/api/settings/clear-activity')
+      toast.success(`Cleared ${data.deleted} activity entries`)
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || 'Failed to clear activity')
+    } finally { setBusy(false) }
+  }
+
+  return (
+    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
+      className="bg-surface-card border border-surface-border rounded-2xl p-5 shadow-card space-y-3">
+      <h3 className="text-white font-semibold text-sm">🧹 Maintenance</h3>
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex-1 min-w-48">
+          <p className="text-white text-sm">Clear Recent Activity</p>
+          <p className="text-surface-muted text-xs mt-0.5">Empties the activity feed on the dashboard. Your inventory, calendar, and chores are untouched.</p>
+        </div>
+        <button onClick={clearActivity} disabled={busy}
+          className="px-4 py-2 border border-red-500/40 text-red-400 hover:bg-red-500/10 text-sm font-medium rounded-lg transition-all disabled:opacity-50">
+          {busy ? 'Clearing…' : 'Clear Activity'}
+        </button>
+      </div>
+    </motion.div>
+  )
+}
+
 function StorageSection() {
   const [status, setStatus] = useState<any>(null)
   const [dataPath, setDataPath] = useState('')
@@ -448,6 +480,9 @@ export default function Settings() {
 
       {/* Storage */}
       <StorageSection />
+
+      {/* Maintenance */}
+      <MaintenanceSection />
 
       {/* Logins / roles */}
       <UsersSection />
