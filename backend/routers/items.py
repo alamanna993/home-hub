@@ -9,6 +9,24 @@ from models import Item, Location, Category, AuditLog
 
 router = APIRouter(prefix="/items", tags=["items"])
 
+GROCERY_PATTERN = ("grocer", "food", "produce")
+
+
+def is_grocery_category(cat: Optional[Category]) -> bool:
+    return bool(cat and any(p in cat.name.lower() for p in GROCERY_PATTERN))
+
+
+def is_tracked(item: Item) -> bool:
+    """Groceries always track stock; everything else is opt-in."""
+    return is_grocery_category(item.category) or bool(item.track_stock)
+
+
+def is_low(item: Item) -> bool:
+    if not is_tracked(item) or item.quantity is None:
+        return False
+    threshold = item.low_stock_threshold if item.low_stock_threshold is not None else 0
+    return item.quantity <= threshold
+
 
 class ItemCreate(BaseModel):
     name: str
@@ -16,6 +34,7 @@ class ItemCreate(BaseModel):
     quantity: Optional[float] = 1
     unit: Optional[str] = None
     author: Optional[str] = None
+    track_stock: Optional[bool] = None
     low_stock_threshold: Optional[float] = None
     location_id: Optional[int] = None
     category_id: Optional[int] = None
@@ -28,6 +47,7 @@ class ItemUpdate(BaseModel):
     quantity: Optional[float] = None
     unit: Optional[str] = None
     author: Optional[str] = None
+    track_stock: Optional[bool] = None
     low_stock_threshold: Optional[float] = None
     location_id: Optional[int] = None
     category_id: Optional[int] = None
@@ -42,13 +62,14 @@ def item_to_dict(item: Item) -> dict:
         "quantity": item.quantity,
         "unit": item.unit,
         "author": item.author,
+        "track_stock": is_tracked(item),
         "low_stock_threshold": item.low_stock_threshold,
         "location": {"id": item.location.id, "name": item.location.name, "sublocation": item.location.sublocation} if item.location else None,
         "category": {"id": item.category.id, "name": item.category.name, "icon": item.category.icon, "color": item.category.color} if item.category else None,
         "notes": item.notes,
         "created_at": item.created_at.isoformat(),
         "updated_at": item.updated_at.isoformat() if item.updated_at else None,
-        "is_low_stock": (item.low_stock_threshold is not None and item.quantity is not None and item.quantity <= item.low_stock_threshold),
+        "is_low_stock": is_low(item),
     }
 
 
@@ -67,22 +88,17 @@ def list_items(
         query = query.filter(Item.category_id == category_id)
     if location_id:
         query = query.filter(Item.location_id == location_id)
-    if low_stock_only:
-        query = query.filter(
-            Item.low_stock_threshold.isnot(None),
-            Item.quantity <= Item.low_stock_threshold,
-        )
     items = query.order_by(Item.name).all()
+    if low_stock_only:
+        items = [i for i in items if is_low(i)]
     return [item_to_dict(i) for i in items]
 
 
 @router.get("/stats")
 def get_stats(db: Session = Depends(get_db)):
-    total = db.query(Item).count()
-    low_stock = db.query(Item).filter(
-        Item.low_stock_threshold.isnot(None),
-        Item.quantity <= Item.low_stock_threshold,
-    ).count()
+    all_items = db.query(Item).all()
+    total = len(all_items)
+    low_stock = sum(1 for i in all_items if is_low(i))
     by_category = (
         db.query(Category.name, Category.color, Category.icon, func.count(Item.id))
         .join(Item, isouter=True)

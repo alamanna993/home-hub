@@ -247,10 +247,8 @@ async def chat(req: ChatRequest, db: Session = Depends(get_db)):
         return {"reply": reply, "action": action, "parsed": parsed}
 
     elif action == "low_stock":
-        low_items = db.query(Item).filter(
-            Item.low_stock_threshold.isnot(None),
-            Item.quantity <= Item.low_stock_threshold,
-        ).all()
+        from routers.items import is_low
+        low_items = [i for i in db.query(Item).all() if is_low(i)]
         if low_items:
             lines = [f"• {i.name}: {i.quantity} {i.unit or ''} left".strip() for i in low_items]
             reply = "⚠️ **Running low:**\n" + "\n".join(lines)

@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 from database import get_db
-from models import FamilyMember
+from models import FamilyMember, Chore
 
 router = APIRouter(prefix="/family", tags=["family"])
 
@@ -51,8 +51,12 @@ def update_member(member_id: int, data: MemberUpdate, db: Session = Depends(get_
     updates = data.model_dump(exclude_unset=True)
     if "name" in updates and not (updates["name"] or "").strip():
         raise HTTPException(status_code=400, detail="Name cannot be empty")
+    old_name = member.name
     for field, value in updates.items():
         setattr(member, field, value.strip() if isinstance(value, str) else value)
+    # Renaming a person carries their chores with them
+    if "name" in updates and member.name != old_name:
+        db.query(Chore).filter(Chore.assigned_to == old_name).update({"assigned_to": member.name})
     db.commit()
     db.refresh(member)
     return member_to_dict(member)

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import { ClipboardList, Plus, Trash2, UserPlus, X } from 'lucide-react'
+import { Check, ClipboardList, Pencil, Plus, Trash2, UserPlus, X } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { getChores, createChore, completeChore, uncompleteChore, deleteChore, Chore, getFamily, createFamilyMember, deleteFamilyMember, FamilyMember } from '../lib/api'
+import { getChores, createChore, completeChore, uncompleteChore, deleteChore, Chore, getFamily, createFamilyMember, updateFamilyMember, deleteFamilyMember, FamilyMember } from '../lib/api'
 import EmojiPicker from '../components/EmojiPicker'
 import { cn } from '../lib/utils'
 
@@ -21,6 +21,8 @@ export default function Chores() {
   const [adding, setAdding] = useState(false)
   const [newMember, setNewMember] = useState('')
   const [newMemberIcon, setNewMemberIcon] = useState('🙂')
+  const [editMemberId, setEditMemberId] = useState<number | null>(null)
+  const [editMember, setEditMember] = useState({ name: '', icon: '' })
 
   const load = () => { getChores().then(setChores); getFamily().then(setMembers).catch(() => {}) }
   useEffect(() => { load() }, [])
@@ -39,6 +41,18 @@ export default function Chores() {
     if (!confirm(`Remove ${m.name} from the family list? Their chores stay assigned by name.`)) return
     await deleteFamilyMember(m.id)
     load()
+  }
+
+  async function saveMember(id: number) {
+    if (!editMember.name.trim()) return toast.error('Name is required')
+    try {
+      await updateFamilyMember(id, { name: editMember.name.trim(), icon: editMember.icon })
+      toast.success('Updated')
+      setEditMemberId(null)
+      load()
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || 'Could not update')
+    }
   }
 
   async function add() {
@@ -92,12 +106,28 @@ export default function Chores() {
         <p className="text-xs text-surface-muted font-medium">👨‍👩‍👧‍👦 Family</p>
         <div className="flex gap-2 flex-wrap items-center">
           {members.map(m => (
-            <span key={m.id} className="group flex items-center gap-1.5 bg-surface border border-surface-border rounded-full pl-2 pr-2.5 py-1 text-sm text-white">
-              <span className="text-base">{m.icon || '🙂'}</span> {m.name}
-              <button onClick={() => removeMember(m)} className="opacity-0 group-hover:opacity-100 text-surface-muted hover:text-red-400 transition-all">
-                <X size={12} />
-              </button>
-            </span>
+            editMemberId === m.id ? (
+              <span key={m.id} className="flex items-center gap-1.5 bg-surface border border-accent/50 rounded-full pl-1 pr-2 py-1">
+                <EmojiPicker value={editMember.icon} onChange={v => setEditMember(f => ({ ...f, icon: v }))}
+                  buttonClassName="w-8 h-7 bg-surface-card border border-surface-border rounded-full text-base hover:border-accent transition-all flex items-center justify-center" />
+                <input autoFocus className="w-24 bg-surface-card border border-surface-border rounded-lg px-2 py-1 text-white text-sm focus:outline-none focus:border-accent"
+                  value={editMember.name} onChange={e => setEditMember(f => ({ ...f, name: e.target.value }))}
+                  onKeyDown={e => { if (e.key === 'Enter') saveMember(m.id); if (e.key === 'Escape') setEditMemberId(null) }} />
+                <button onClick={() => saveMember(m.id)} className="text-green-400 hover:text-green-300"><Check size={14} /></button>
+                <button onClick={() => setEditMemberId(null)} className="text-surface-muted hover:text-white"><X size={14} /></button>
+              </span>
+            ) : (
+              <span key={m.id} className="group flex items-center gap-1.5 bg-surface border border-surface-border rounded-full pl-2 pr-2.5 py-1 text-sm text-white">
+                <span className="text-base">{m.icon || '🙂'}</span> {m.name}
+                <button onClick={() => { setEditMemberId(m.id); setEditMember({ name: m.name, icon: m.icon || '🙂' }) }}
+                  className="opacity-0 group-hover:opacity-100 text-surface-muted hover:text-accent transition-all">
+                  <Pencil size={11} />
+                </button>
+                <button onClick={() => removeMember(m)} className="opacity-0 group-hover:opacity-100 text-surface-muted hover:text-red-400 transition-all">
+                  <X size={12} />
+                </button>
+              </span>
+            )
           ))}
           <div className="flex items-center gap-1.5">
             <EmojiPicker value={newMemberIcon} onChange={setNewMemberIcon}

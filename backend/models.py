@@ -37,7 +37,8 @@ class Item(Base):
     quantity = Column(Float, nullable=True, default=1)
     unit = Column(String(50), nullable=True)            # e.g. "bottles", "boxes", "lbs"
     author = Column(String(200), nullable=True)         # for books / media
-    low_stock_threshold = Column(Float, nullable=True)  # alert when below this
+    track_stock = Column(Boolean, default=False)        # groceries auto-track; others opt in
+    low_stock_threshold = Column(Float, nullable=True)  # alert when at/below this (default 0 = alert when out)
     location_id = Column(Integer, ForeignKey("locations.id"), nullable=True)
     category_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
     image_url = Column(String(500), nullable=True)

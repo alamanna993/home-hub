@@ -17,7 +17,7 @@ interface Props {
 export default function ItemModal({ item, categories, locations, onClose, onSaved }: Props) {
   const [form, setForm] = useState({
     name: '', quantity: '', unit: '', notes: '', author: '',
-    low_stock_threshold: '', location_id: '', category_id: '',
+    track_stock: false, low_stock_threshold: '', location_id: '', category_id: '',
   })
   const [newLoc, setNewLoc] = useState({ name: '', sublocation: '' })
   const [newCat, setNewCat] = useState('')
@@ -28,6 +28,7 @@ export default function ItemModal({ item, categories, locations, onClose, onSave
       setForm({
         name: item.name, quantity: String(item.quantity ?? ''),
         unit: item.unit ?? '', notes: item.notes ?? '', author: item.author ?? '',
+        track_stock: Boolean(item.track_stock),
         low_stock_threshold: String(item.low_stock_threshold ?? ''),
         location_id: String(item.location?.id ?? ''),
         category_id: String(item.category?.id ?? ''),
@@ -42,6 +43,8 @@ export default function ItemModal({ item, categories, locations, onClose, onSave
     ? newCat
     : categories.find(c => String(c.id) === form.category_id)?.name || ''
   const showAuthor = /book|media|dvd|vinyl|comic|magazine/i.test(selectedCatName) || Boolean(form.author)
+  const isGrocery = /grocer|food|produce/i.test(selectedCatName)
+  const tracking = isGrocery || form.track_stock
 
   async function save() {
     if (!form.name.trim()) return toast.error('Name is required')
@@ -65,7 +68,8 @@ export default function ItemModal({ item, categories, locations, onClose, onSave
         unit: form.unit || undefined,
         author: form.author.trim() || undefined,
         notes: form.notes || undefined,
-        low_stock_threshold: form.low_stock_threshold ? parseFloat(form.low_stock_threshold) : undefined,
+        track_stock: isGrocery ? true : form.track_stock,
+        low_stock_threshold: tracking && form.low_stock_threshold ? parseFloat(form.low_stock_threshold) : undefined,
         location_id: locationId ? parseInt(locationId) : undefined,
         category_id: categoryId ? parseInt(categoryId) : undefined,
       }
@@ -119,10 +123,22 @@ export default function ItemModal({ item, categories, locations, onClose, onSave
                   value={form.unit} onChange={e => set('unit', e.target.value)} placeholder="boxes, lbs, ea" />
               </div>
             </div>
-            <div>
-              <label className="text-xs text-surface-muted mb-1 block">Low Stock Alert (qty)</label>
-              <input type="number" className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
-                value={form.low_stock_threshold} onChange={e => set('low_stock_threshold', e.target.value)} placeholder="Alert when below this number" />
+            <div className="bg-surface rounded-lg px-3 py-2.5 space-y-2">
+              <label className={`flex items-center gap-2.5 text-sm ${isGrocery ? 'text-surface-muted' : 'text-white cursor-pointer'}`}>
+                <input type="checkbox" className="w-4 h-4 accent-indigo-500"
+                  checked={tracking} disabled={isGrocery}
+                  onChange={e => setForm(f => ({ ...f, track_stock: e.target.checked }))} />
+                Track stock level
+                {isGrocery && <span className="text-[10px] text-green-400 ml-auto">always on for groceries</span>}
+              </label>
+              {tracking && (
+                <div>
+                  <label className="text-xs text-surface-muted mb-1 block">Alert when quantity is at or below</label>
+                  <input type="number" className="w-full bg-surface-card border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
+                    value={form.low_stock_threshold} onChange={e => set('low_stock_threshold', e.target.value)}
+                    placeholder="Blank = alert only when out (0)" />
+                </div>
+              )}
             </div>
             <div>
               <label className="text-xs text-surface-muted mb-1 block">Location</label>

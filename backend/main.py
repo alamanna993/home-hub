@@ -89,6 +89,20 @@ def run_migrations():
     """Lightweight column additions for existing installs (create_all won't alter tables)."""
     from sqlalchemy import text
     with engine.begin() as conn:
+        # track_stock backfill must only run when the column is first created
+        had_track_stock = conn.execute(text(
+            "SELECT 1 FROM information_schema.columns WHERE table_name='items' AND column_name='track_stock'"
+        )).first() is not None
+        conn.execute(text("ALTER TABLE items ADD COLUMN IF NOT EXISTS track_stock BOOLEAN DEFAULT FALSE"))
+        if not had_track_stock:
+            conn.execute(text("""
+                UPDATE items SET track_stock = TRUE
+                WHERE low_stock_threshold IS NOT NULL
+                   OR category_id IN (
+                        SELECT id FROM categories
+                        WHERE name ILIKE '%grocer%' OR name ILIKE '%food%' OR name ILIKE '%produce%'
+                   )
+            """))
         conn.execute(text("ALTER TABLE items ADD COLUMN IF NOT EXISTS author VARCHAR(200)"))
         conn.execute(text("ALTER TABLE locations ADD COLUMN IF NOT EXISTS icon VARCHAR(50)"))
         conn.execute(text("ALTER TABLE chores ADD COLUMN IF NOT EXISTS icon VARCHAR(50)"))

@@ -29,7 +29,8 @@ export interface Location { id: number; name: string; sublocation?: string; icon
 export interface Category { id: number; name: string; icon?: string; color?: string }
 export interface Item {
   id: number; name: string; description?: string
-  quantity?: number; unit?: string; author?: string; low_stock_threshold?: number
+  quantity?: number; unit?: string; author?: string
+  track_stock?: boolean; low_stock_threshold?: number
   location?: { id: number; name: string; sublocation?: string }
   category?: { id: number; name: string; icon?: string; color?: string }
   notes?: string; is_low_stock: boolean
@@ -139,6 +140,9 @@ export const getFamily = () => api.get<FamilyMember[]>('/family/').then(r => r.d
 
 export const createFamilyMember = (data: { name: string; icon?: string; color?: string }) =>
   api.post<FamilyMember>('/family/', data).then(r => r.data)
+
+export const updateFamilyMember = (id: number, data: { name?: string; icon?: string; color?: string }) =>
+  api.patch<FamilyMember>(`/family/${id}`, data).then(r => r.data)
 
 export const deleteFamilyMember = (id: number) =>
   api.delete(`/family/${id}`).then(r => r.data)
