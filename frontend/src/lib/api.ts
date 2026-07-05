@@ -132,4 +132,26 @@ export const uncompleteChore = (id: number) =>
 export const deleteChore = (id: number) =>
   api.delete(`/chores/${id}`).then(r => r.data)
 
+// ---- Family ----
+export interface FamilyMember { id: number; name: string; icon?: string; color?: string }
+
+export const getFamily = () => api.get<FamilyMember[]>('/family/').then(r => r.data)
+
+export const createFamilyMember = (data: { name: string; icon?: string; color?: string }) =>
+  api.post<FamilyMember>('/family/', data).then(r => r.data)
+
+export const deleteFamilyMember = (id: number) =>
+  api.delete(`/family/${id}`).then(r => r.data)
+
+// ---- Users (admin) ----
+export interface AppUser { id: number; username: string; role: 'admin' | 'member' }
+
+export const getUsers = () => api.get<AppUser[]>('/auth/users').then(r => r.data)
+
+export const createUser = (data: { username: string; password: string; role: string }) =>
+  api.post<AppUser>('/auth/users', data).then(r => r.data)
+
+export const deleteUser = (id: number) =>
+  api.delete(`/auth/users/${id}`).then(r => r.data)
+
 export default api

@@ -66,6 +66,17 @@ class User(Base):
     id = Column(Integer, primary_key=True)
     username = Column(String(100), unique=True, nullable=False)
     hashed_password = Column(String(200), nullable=False)
+    role = Column(String(20), default="admin")          # admin | member (member can't touch settings)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class FamilyMember(Base):
+    __tablename__ = "family_members"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(100), unique=True, nullable=False)
+    icon = Column(String(50), nullable=True)            # emoji avatar
+    color = Column(String(20), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

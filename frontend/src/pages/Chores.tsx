@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import { ClipboardList, Plus, Trash2 } from 'lucide-react'
+import { ClipboardList, Plus, Trash2, UserPlus, X } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { getChores, createChore, completeChore, uncompleteChore, deleteChore, Chore } from '../lib/api'
+import { getChores, createChore, completeChore, uncompleteChore, deleteChore, Chore, getFamily, createFamilyMember, deleteFamilyMember, FamilyMember } from '../lib/api'
 import EmojiPicker from '../components/EmojiPicker'
 import { cn } from '../lib/utils'
 
@@ -12,15 +12,34 @@ const CHEERS = ['🎉 Great job!', '⭐ Awesome!', '🙌 Nice work!', '💪 You 
 
 export default function Chores() {
   const [chores, setChores] = useState<Chore[]>([])
+  const [members, setMembers] = useState<FamilyMember[]>([])
   const [title, setTitle] = useState('')
   const [icon, setIcon] = useState('🧹')
   const [person, setPerson] = useState('')
   const [frequency, setFrequency] = useState('weekly')
   const [dayOfWeek, setDayOfWeek] = useState<string>('')
   const [adding, setAdding] = useState(false)
+  const [newMember, setNewMember] = useState('')
+  const [newMemberIcon, setNewMemberIcon] = useState('🙂')
 
-  const load = () => getChores().then(setChores)
+  const load = () => { getChores().then(setChores); getFamily().then(setMembers).catch(() => {}) }
   useEffect(() => { load() }, [])
+
+  async function addMember() {
+    if (!newMember.trim()) return
+    try {
+      await createFamilyMember({ name: newMember.trim(), icon: newMemberIcon })
+      setNewMember(''); toast.success('Family member added'); load()
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || 'Could not add member')
+    }
+  }
+
+  async function removeMember(m: FamilyMember) {
+    if (!confirm(`Remove ${m.name} from the family list? Their chores stay assigned by name.`)) return
+    await deleteFamilyMember(m.id)
+    load()
+  }
 
   async function add() {
     if (!title.trim()) return
@@ -54,9 +73,12 @@ export default function Chores() {
 
   const byPerson = useMemo(() => {
     const map: Record<string, Chore[]> = {}
+    for (const m of members) map[m.name] = []   // every family member gets their own row
     for (const c of chores) (map[c.assigned_to || 'Anyone'] ||= []).push(c)
     return Object.entries(map).sort(([a], [b]) => a.localeCompare(b))
-  }, [chores])
+  }, [chores, members])
+
+  const memberIcon = (name: string) => members.find(m => m.name === name)?.icon
 
   return (
     <div className="p-6 space-y-5">
@@ -65,13 +87,42 @@ export default function Chores() {
         <p className="text-surface-muted text-sm mt-1">Who does what — check them off as they're done</p>
       </div>
 
+      {/* Family members */}
+      <div className="bg-surface-card border border-surface-border rounded-2xl p-4 space-y-3">
+        <p className="text-xs text-surface-muted font-medium">👨‍👩‍👧‍👦 Family</p>
+        <div className="flex gap-2 flex-wrap items-center">
+          {members.map(m => (
+            <span key={m.id} className="group flex items-center gap-1.5 bg-surface border border-surface-border rounded-full pl-2 pr-2.5 py-1 text-sm text-white">
+              <span className="text-base">{m.icon || '🙂'}</span> {m.name}
+              <button onClick={() => removeMember(m)} className="opacity-0 group-hover:opacity-100 text-surface-muted hover:text-red-400 transition-all">
+                <X size={12} />
+              </button>
+            </span>
+          ))}
+          <div className="flex items-center gap-1.5">
+            <EmojiPicker value={newMemberIcon} onChange={setNewMemberIcon}
+              buttonClassName="w-9 h-8 bg-surface border border-surface-border rounded-lg text-base hover:border-accent transition-all flex items-center justify-center" />
+            <input className="w-28 bg-surface border border-surface-border rounded-lg px-2.5 py-1.5 text-white text-sm focus:outline-none focus:border-accent"
+              placeholder="Add person" value={newMember} onChange={e => setNewMember(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && addMember()} />
+            <button onClick={addMember} disabled={!newMember.trim()}
+              className="p-1.5 rounded-lg bg-accent/15 hover:bg-accent/25 text-accent transition-all disabled:opacity-40">
+              <UserPlus size={15} />
+            </button>
+          </div>
+        </div>
+      </div>
+
       <div className="bg-surface-card border border-surface-border rounded-2xl p-4 flex gap-3 flex-wrap">
         <EmojiPicker value={icon} onChange={setIcon} />
         <input className="flex-1 min-w-40 bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
           placeholder="Chore (e.g. Take out trash)" value={title} onChange={e => setTitle(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && add()} />
-        <input className="w-36 bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
-          placeholder="Assigned to" value={person} onChange={e => setPerson(e.target.value)} />
+        <select className="w-36 bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
+          value={person} onChange={e => setPerson(e.target.value)}>
+          <option value="">Anyone</option>
+          {members.map(m => <option key={m.id} value={m.name}>{m.icon || '🙂'} {m.name}</option>)}
+        </select>
         <select className="bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
           value={frequency} onChange={e => setFrequency(e.target.value)}>
           <option value="daily">Daily</option>
@@ -95,7 +146,7 @@ export default function Chores() {
       {byPerson.length === 0 && (
         <div className="text-center py-16 text-surface-muted">
           <ClipboardList size={40} className="mx-auto mb-3 opacity-40" />
-          <p className="text-sm">No chores yet. Add the first one above.</p>
+          <p className="text-sm">Add your family members above, then give everyone their chores.</p>
         </div>
       )}
 
@@ -107,10 +158,13 @@ export default function Chores() {
               transition={{ delay: gi * 0.05 }}
               className="bg-surface-card border border-surface-border rounded-2xl p-4 space-y-3 shadow-card">
               <div className="flex items-center justify-between">
-                <h3 className="text-white font-semibold">{name}</h3>
+                <h3 className="text-white font-semibold flex items-center gap-2">
+                  {memberIcon(name) && <span className="text-xl">{memberIcon(name)}</span>}
+                  {name}
+                </h3>
                 <span className={cn('text-xs px-2 py-0.5 rounded-full',
-                  done === personChores.length ? 'bg-green-500/15 text-green-400' : 'bg-white/5 text-surface-muted')}>
-                  {done}/{personChores.length} done
+                  personChores.length > 0 && done === personChores.length ? 'bg-green-500/15 text-green-400' : 'bg-white/5 text-surface-muted')}>
+                  {personChores.length > 0 ? `${done}/${personChores.length} done` : 'no chores yet'}
                 </span>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">

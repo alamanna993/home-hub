@@ -10,6 +10,8 @@ from database import get_db
 from models import CalendarEvent, Setting
 
 router = APIRouter(prefix="/calendar", tags=["calendar"])
+# The ICS feed must be reachable by Google/Outlook without a login — token auth only.
+feed_router = APIRouter(prefix="/calendar", tags=["calendar"])
 logger = logging.getLogger("homehub")
 
 # External ICS feeds (Google/Outlook) — fetched read-only, cached for 10 minutes
@@ -128,6 +130,41 @@ async def list_events(
                 events.append(ev)
         events.sort(key=lambda e: e["start"])
     return events
+
+
+@feed_router.get("/feed.ics")
+def calendar_feed(token: str, db: Session = Depends(get_db)):
+    """Public ICS feed (token-protected) — subscribe from Google/Outlook so HomeHub
+    events show up in your existing calendar apps."""
+    from fastapi import Response
+    import icalendar
+
+    stored = db.query(Setting).filter(Setting.key == "calendar_feed_token").first()
+    if not stored or not stored.value or token != stored.value:
+        raise HTTPException(status_code=401, detail="Invalid feed token")
+
+    cal = icalendar.Calendar()
+    cal.add("prodid", "-//HomeHub//homehub//EN")
+    cal.add("version", "2.0")
+    cal.add("x-wr-calname", "HomeHub")
+
+    window_start = datetime.now() - timedelta(days=30)
+    events = db.query(CalendarEvent).filter(CalendarEvent.start >= window_start).order_by(CalendarEvent.start).all()
+    for e in events:
+        ev = icalendar.Event()
+        ev.add("uid", f"homehub-event-{e.id}@homehub")
+        ev.add("summary", e.title)
+        if e.all_day:
+            ev.add("dtstart", e.start.date())
+        else:
+            ev.add("dtstart", e.start)
+            ev.add("dtend", e.end or (e.start + timedelta(hours=1)))
+        if e.description:
+            ev.add("description", e.description)
+        cal.add_component(ev)
+
+    return Response(content=cal.to_ical(), media_type="text/calendar",
+                    headers={"Content-Disposition": "attachment; filename=homehub.ics"})
 
 
 @router.post("/", status_code=201)

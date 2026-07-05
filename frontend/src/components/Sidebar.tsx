@@ -16,7 +16,7 @@ const links = [
 ]
 
 export default function Sidebar() {
-  const { username, logout } = useAuth()
+  const { username, logout, isAdmin } = useAuth()
   const navigate = useNavigate()
 
   function handleLogout() {
@@ -58,7 +58,7 @@ export default function Sidebar() {
       </nav>
 
       <div className="px-3 py-3 border-t border-surface-border space-y-1">
-        <NavLink
+        {isAdmin && <NavLink
           to="/settings"
           className={({ isActive }) =>
             cn(
@@ -71,7 +71,7 @@ export default function Sidebar() {
         >
           <Settings size={17} />
           Settings
-        </NavLink>
+        </NavLink>}
 
         <button
           onClick={handleLogout}

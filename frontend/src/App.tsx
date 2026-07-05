@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import axios from 'axios'
-import { AuthProvider } from './hooks/useAuth'
+import { AuthProvider, useAuth } from './hooks/useAuth'
 import Setup from './pages/Setup'
 import ProtectedRoute from './components/ProtectedRoute'
 import Sidebar from './components/Sidebar'
@@ -20,8 +20,10 @@ import Settings from './pages/Settings'
 
 function AppLayout() {
   const navigate = useNavigate()
+  const { isAdmin } = useAuth()
 
   useEffect(() => {
+    if (!isAdmin) return  // only admins run (or re-run) the setup wizard
     axios.get('/api/settings/setup/status')
       .then(r => { if (!r.data.setup_complete) navigate('/setup', { replace: true }) })
       .catch(() => {})

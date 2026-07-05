@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Save, Eye, EyeOff, KeyRound, RefreshCw, Database } from 'lucide-react'
+import { Save, Eye, EyeOff, KeyRound, RefreshCw, Database, Users, Copy, Trash2 } from 'lucide-react'
 import axios from 'axios'
 import toast from 'react-hot-toast'
 import { useAuth } from '../hooks/useAuth'
+import { getUsers, createUser, deleteUser, AppUser } from '../lib/api'
 import ModelSelect from '../components/ModelSelect'
 import StoragePathInput from '../components/StoragePathInput'
 
@@ -63,6 +64,110 @@ const GROUPS = [
   { label: '🤖 Discord', keys: ['discord_token', 'discord_channel_id', 'low_stock_alert_channel'] },
   { label: '🎨 Dashboard', keys: ['site_title'] },
 ]
+
+function UsersSection() {
+  const [users, setUsers] = useState<AppUser[]>([])
+  const [form, setForm] = useState({ username: '', password: '', role: 'member' })
+  const [busy, setBusy] = useState(false)
+
+  const load = () => getUsers().then(setUsers).catch(() => {})
+  useEffect(() => { load() }, [])
+
+  async function add() {
+    if (!form.username.trim() || form.password.length < 6) return toast.error('Username + 6-char password required')
+    setBusy(true)
+    try {
+      await createUser(form)
+      toast.success(`${form.role === 'member' ? 'Member' : 'Admin'} account created`)
+      setForm({ username: '', password: '', role: 'member' })
+      load()
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || 'Could not create user')
+    } finally { setBusy(false) }
+  }
+
+  async function remove(u: AppUser) {
+    if (!confirm(`Delete login "${u.username}"?`)) return
+    try {
+      await deleteUser(u.id)
+      toast.success('User deleted'); load()
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || 'Could not delete user')
+    }
+  }
+
+  const input = 'bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent'
+
+  return (
+    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
+      className="bg-surface-card border border-surface-border rounded-2xl p-5 shadow-card space-y-4">
+      <h3 className="text-white font-semibold text-sm flex items-center gap-2">
+        <Users size={15} className="text-accent" /> Logins
+      </h3>
+      <p className="text-surface-muted text-xs leading-relaxed">
+        <span className="text-white font-medium">Members</span> can use everything — inventory, calendar,
+        meals, chores, chat — but can't open Settings. Great for kids' tablets or a shared kitchen display.
+      </p>
+      <div className="space-y-1.5">
+        {users.map(u => (
+          <div key={u.id} className="flex items-center gap-3 bg-surface rounded-lg px-3 py-2 group">
+            <span className="text-white text-sm flex-1">{u.username}</span>
+            <span className={cnRole(u.role)}>{u.role}</span>
+            <button onClick={() => remove(u)} className="opacity-0 group-hover:opacity-100 text-surface-muted hover:text-red-400 transition-all">
+              <Trash2 size={14} />
+            </button>
+          </div>
+        ))}
+      </div>
+      <div className="flex gap-2 flex-wrap">
+        <input className={`flex-1 min-w-28 ${input}`} placeholder="Username"
+          value={form.username} onChange={e => setForm(f => ({ ...f, username: e.target.value }))} />
+        <input type="password" className={`flex-1 min-w-28 ${input}`} placeholder="Password (6+)"
+          value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} />
+        <select className={input} value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}>
+          <option value="member">Member</option>
+          <option value="admin">Admin</option>
+        </select>
+        <button onClick={add} disabled={busy}
+          className="px-4 py-2 bg-accent hover:bg-accent-hover text-white text-sm font-medium rounded-lg transition-all disabled:opacity-50">
+          Add
+        </button>
+      </div>
+    </motion.div>
+  )
+}
+
+function cnRole(role: string) {
+  return role === 'admin'
+    ? 'text-xs px-2 py-0.5 rounded-full bg-accent/15 text-accent'
+    : 'text-xs px-2 py-0.5 rounded-full bg-white/5 text-surface-muted'
+}
+
+function CalendarFeedSection() {
+  const [path, setPath] = useState<string | null>(null)
+
+  useEffect(() => {
+    axios.get('/api/settings/calendar-feed').then(r => setPath(r.data.path)).catch(() => {})
+  }, [])
+
+  if (!path) return null
+  const url = `${window.location.origin}${path}`
+
+  return (
+    <div className="bg-surface rounded-lg px-3 py-2.5 space-y-1.5">
+      <p className="text-surface-muted text-xs font-medium">📤 Your HomeHub calendar as a feed (subscribe from Google/Outlook)</p>
+      <div className="flex gap-2 items-center">
+        <code className="flex-1 text-green-400 text-[11px] break-all bg-black/30 rounded px-2 py-1.5">{url}</code>
+        <button onClick={() => { navigator.clipboard.writeText(url); toast.success('Copied') }}
+          className="text-surface-muted hover:text-white transition-colors flex-shrink-0"><Copy size={14} /></button>
+      </div>
+      <p className="text-surface-muted text-[10px] leading-relaxed">
+        Google Calendar: Other calendars → + → From URL. Outlook: Add calendar → Subscribe from web.
+        Needs to be a URL they can reach (your public/Tailscale address, not localhost). Google refreshes subscribed feeds every few hours.
+      </p>
+    </div>
+  )
+}
 
 function StorageSection() {
   const [status, setStatus] = useState<any>(null)
@@ -256,6 +361,7 @@ export default function Settings() {
               </div>
             )
           })}
+          {group.label.includes('Calendar') && <CalendarFeedSection />}
         </motion.div>
       ))}
 
@@ -342,6 +448,9 @@ export default function Settings() {
 
       {/* Storage */}
       <StorageSection />
+
+      {/* Logins / roles */}
+      <UsersSection />
 
       {/* Change Password */}
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}

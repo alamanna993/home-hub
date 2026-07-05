@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from typing import Optional
 from database import get_db, settings as env_settings
 from models import Setting, User
-from auth import get_current_user, verify_password
+from auth import get_current_user, require_admin, verify_password
 import auth as auth_module
 
 router = APIRouter(prefix="/settings", tags=["settings"])
@@ -39,7 +39,7 @@ class SettingUpdate(BaseModel):
 
 
 @router.get("/")
-def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def get_settings(db: Session = Depends(get_db), _: User = Depends(require_admin)):
     rows = {s.key: s.value for s in db.query(Setting).all()}
     result = []
     for defn in SETTING_DEFINITIONS:
@@ -59,7 +59,7 @@ def update_setting(
     key: str,
     data: SettingUpdate,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_admin),
 ):
     valid_keys = {d["key"] for d in SETTING_DEFINITIONS}
     if key not in valid_keys:
@@ -102,6 +102,23 @@ def get_runtime_settings(db: Session = Depends(get_db), _=Depends(require_api_ke
     }
 
 
+@router.get("/calendar-feed")
+def calendar_feed_info(db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    """The token for HomeHub's outgoing ICS feed, so the UI can show the subscribe URL."""
+    row = db.query(Setting).filter(Setting.key == "calendar_feed_token").first()
+    if not row or not row.value:
+        import secrets as _secrets
+        token = _secrets.token_hex(16)
+        if row:
+            row.value = token
+        else:
+            db.add(Setting(key="calendar_feed_token", value=token))
+        db.commit()
+    else:
+        token = row.value
+    return {"token": token, "path": f"/api/calendar/feed.ics?token={token}"}
+
+
 @router.get("/setup/status")
 def setup_status(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     import os
@@ -141,7 +158,7 @@ def _set_env_line(lines: list[str], key: str, value: str) -> list[str]:
 
 
 @router.post("/storage")
-def update_storage(data: StorageUpdate, _: User = Depends(get_current_user)):
+def update_storage(data: StorageUpdate, _: User = Depends(require_admin)):
     import os
     env_file = env_settings.env_file_path
     if not env_file or not os.path.isfile(env_file):
@@ -182,7 +199,7 @@ class StorageTest(BaseModel):
 
 
 @router.post("/storage/test")
-def test_storage_path(data: StorageTest, _: User = Depends(get_current_user)):
+def test_storage_path(data: StorageTest, _: User = Depends(require_admin)):
     """Sanity-check a storage path before saving. We can't see the host's filesystem from
     this container, so we validate the path shape, reach out to network hosts, and flag
     setups known to cause trouble (live Postgres on SMB/NFS shares)."""
@@ -254,7 +271,7 @@ CURATED_MODELS = {
 
 
 @router.get("/models")
-async def list_models(provider: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+async def list_models(provider: str, db: Session = Depends(get_db), _: User = Depends(require_admin)):
     """List models available for a provider: live from the server/API when possible, curated fallback."""
     import httpx
     rows = {s.key: s.value for s in db.query(Setting).all()}
@@ -305,7 +322,7 @@ async def list_models(provider: str, db: Session = Depends(get_db), _: User = De
 
 
 @router.post("/setup/complete")
-def complete_setup(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def complete_setup(db: Session = Depends(get_db), _: User = Depends(require_admin)):
     setting = db.query(Setting).filter(Setting.key == "setup_complete").first()
     if setting:
         setting.value = "true"
@@ -316,7 +333,7 @@ def complete_setup(db: Session = Depends(get_db), _: User = Depends(get_current_
 
 
 @router.post("/test-llm")
-async def test_llm(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+async def test_llm(db: Session = Depends(get_db), _: User = Depends(require_admin)):
     """Fire a tiny prompt at the configured provider to confirm it responds."""
     from llm import generate_response
     reply = await generate_response("Reply with the single word: OK", db=db)

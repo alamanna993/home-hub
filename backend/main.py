@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from database import engine, Base, settings as app_settings
-from routers import items, locations, categories, chat, calendar, meals, chores
+from routers import items, locations, categories, chat, calendar, meals, chores, family
 from routers import auth as auth_router
 from routers import settings as settings_router
 from models import Category, Location, User, Setting
@@ -26,9 +26,11 @@ app.include_router(items.router, dependencies=[Depends(get_current_user)])
 app.include_router(locations.router, dependencies=[Depends(get_current_user)])
 app.include_router(categories.router, dependencies=[Depends(get_current_user)])
 app.include_router(chat.router, dependencies=[Depends(get_current_user)])
+app.include_router(calendar.feed_router)  # token-protected, used by Google/Outlook subscriptions
 app.include_router(calendar.router, dependencies=[Depends(get_current_user)])
 app.include_router(meals.router, dependencies=[Depends(get_current_user)])
 app.include_router(chores.router, dependencies=[Depends(get_current_user)])
+app.include_router(family.router, dependencies=[Depends(get_current_user)])
 
 
 def seed_defaults(db: Session):
@@ -63,9 +65,11 @@ def seed_defaults(db: Session):
         db.add(User(username="admin", hashed_password=hash_password(app_settings.default_admin_password)))
         logger.warning("Created default admin user — password: %s — change it in Settings!", app_settings.default_admin_password)
 
+    import secrets as _secrets
     default_settings = [
         ("site_title", "HomeHub"),
         ("setup_complete", "false"),
+        ("calendar_feed_token", _secrets.token_hex(16)),
         ("llm_provider", app_settings.llm_provider),
         ("ollama_host", app_settings.ollama_host),
         ("ollama_model", app_settings.ollama_model),
@@ -88,6 +92,7 @@ def run_migrations():
         conn.execute(text("ALTER TABLE items ADD COLUMN IF NOT EXISTS author VARCHAR(200)"))
         conn.execute(text("ALTER TABLE locations ADD COLUMN IF NOT EXISTS icon VARCHAR(50)"))
         conn.execute(text("ALTER TABLE chores ADD COLUMN IF NOT EXISTS icon VARCHAR(50)"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'admin'"))
 
 
 @app.on_event("startup")

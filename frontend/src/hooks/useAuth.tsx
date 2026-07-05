@@ -1,11 +1,12 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 import axios from 'axios'
 
-interface AuthState { username: string | null; token: string | null }
+interface AuthState { username: string | null; token: string | null; role: string | null }
 interface AuthContext extends AuthState {
   login: (username: string, password: string) => Promise<void>
   logout: () => void
   isAuthenticated: boolean
+  isAdmin: boolean
 }
 
 const Ctx = createContext<AuthContext | null>(null)
@@ -14,6 +15,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [auth, setAuth] = useState<AuthState>(() => ({
     token: localStorage.getItem('hh_token'),
     username: localStorage.getItem('hh_user'),
+    role: localStorage.getItem('hh_role'),
   }))
 
   useEffect(() => {
@@ -33,19 +35,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
     localStorage.setItem('hh_token', data.access_token)
     localStorage.setItem('hh_user', data.username)
+    localStorage.setItem('hh_role', data.role || 'admin')
     axios.defaults.headers.common['Authorization'] = `Bearer ${data.access_token}`
-    setAuth({ token: data.access_token, username: data.username })
+    setAuth({ token: data.access_token, username: data.username, role: data.role || 'admin' })
   }
 
   function logout() {
     localStorage.removeItem('hh_token')
     localStorage.removeItem('hh_user')
+    localStorage.removeItem('hh_role')
     delete axios.defaults.headers.common['Authorization']
-    setAuth({ token: null, username: null })
+    setAuth({ token: null, username: null, role: null })
   }
 
   return (
-    <Ctx.Provider value={{ ...auth, login, logout, isAuthenticated: !!auth.token }}>
+    <Ctx.Provider value={{ ...auth, login, logout, isAuthenticated: !!auth.token, isAdmin: (auth.role || 'admin') === 'admin' }}>
       {children}
     </Ctx.Provider>
   )
