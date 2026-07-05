@@ -25,11 +25,11 @@ api.interceptors.response.use(r => r, onUnauthorized)
 axios.interceptors.request.use(attachToken)
 axios.interceptors.response.use(r => r, onUnauthorized)
 
-export interface Location { id: number; name: string; sublocation?: string; item_count: number }
+export interface Location { id: number; name: string; sublocation?: string; description?: string; item_count: number }
 export interface Category { id: number; name: string; icon?: string; color?: string }
 export interface Item {
   id: number; name: string; description?: string
-  quantity?: number; unit?: string; low_stock_threshold?: number
+  quantity?: number; unit?: string; author?: string; low_stock_threshold?: number
   location?: { id: number; name: string; sublocation?: string }
   category?: { id: number; name: string; icon?: string; color?: string }
   notes?: string; is_low_stock: boolean
@@ -62,6 +62,9 @@ export const chat = (message: string) =>
 
 export const createLocation = (data: { name: string; sublocation?: string }) =>
   api.post<Location>('/locations/', data).then(r => r.data)
+
+export const updateLocation = (id: number, data: { name?: string; sublocation?: string; description?: string }) =>
+  api.patch<Location>(`/locations/${id}`, data).then(r => r.data)
 
 export const createCategory = (data: { name: string; icon?: string; color?: string }) =>
   api.post<Category>('/categories/', data).then(r => r.data)

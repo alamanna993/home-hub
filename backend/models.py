@@ -35,6 +35,7 @@ class Item(Base):
     description = Column(Text, nullable=True)
     quantity = Column(Float, nullable=True, default=1)
     unit = Column(String(50), nullable=True)            # e.g. "bottles", "boxes", "lbs"
+    author = Column(String(200), nullable=True)         # for books / media
     low_stock_threshold = Column(Float, nullable=True)  # alert when below this
     location_id = Column(Integer, ForeignKey("locations.id"), nullable=True)
     category_id = Column(Integer, ForeignKey("categories.id"), nullable=True)

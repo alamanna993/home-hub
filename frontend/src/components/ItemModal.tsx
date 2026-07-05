@@ -16,7 +16,7 @@ interface Props {
 
 export default function ItemModal({ item, categories, locations, onClose, onSaved }: Props) {
   const [form, setForm] = useState({
-    name: '', quantity: '', unit: '', notes: '',
+    name: '', quantity: '', unit: '', notes: '', author: '',
     low_stock_threshold: '', location_id: '', category_id: '',
   })
   const [newLoc, setNewLoc] = useState({ name: '', sublocation: '' })
@@ -27,7 +27,7 @@ export default function ItemModal({ item, categories, locations, onClose, onSave
     if (item) {
       setForm({
         name: item.name, quantity: String(item.quantity ?? ''),
-        unit: item.unit ?? '', notes: item.notes ?? '',
+        unit: item.unit ?? '', notes: item.notes ?? '', author: item.author ?? '',
         low_stock_threshold: String(item.low_stock_threshold ?? ''),
         location_id: String(item.location?.id ?? ''),
         category_id: String(item.category?.id ?? ''),
@@ -36,6 +36,12 @@ export default function ItemModal({ item, categories, locations, onClose, onSave
   }, [item])
 
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
+
+  // Show the author field for book/media-ish categories (including one being created inline)
+  const selectedCatName = form.category_id === NEW
+    ? newCat
+    : categories.find(c => String(c.id) === form.category_id)?.name || ''
+  const showAuthor = /book|media|dvd|vinyl|comic|magazine/i.test(selectedCatName) || Boolean(form.author)
 
   async function save() {
     if (!form.name.trim()) return toast.error('Name is required')
@@ -57,6 +63,7 @@ export default function ItemModal({ item, categories, locations, onClose, onSave
         name: form.name,
         quantity: form.quantity ? parseFloat(form.quantity) : undefined,
         unit: form.unit || undefined,
+        author: form.author.trim() || undefined,
         notes: form.notes || undefined,
         low_stock_threshold: form.low_stock_threshold ? parseFloat(form.low_stock_threshold) : undefined,
         location_id: locationId ? parseInt(locationId) : undefined,
@@ -154,6 +161,14 @@ export default function ItemModal({ item, categories, locations, onClose, onSave
                   onChange={e => setNewCat(e.target.value)} />
               )}
             </div>
+            {showAuthor && (
+              <div>
+                <label className="text-xs text-surface-muted mb-1 block">Author / Artist</label>
+                <input className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
+                  value={form.author} onChange={e => set('author', e.target.value)}
+                  placeholder="e.g. Brandon Sanderson" />
+              </div>
+            )}
             <div>
               <label className="text-xs text-surface-muted mb-1 block">Notes</label>
               <textarea className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent resize-none"

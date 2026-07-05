@@ -14,6 +14,12 @@ class LocationCreate(BaseModel):
     description: Optional[str] = None
 
 
+class LocationUpdate(BaseModel):
+    name: Optional[str] = None
+    sublocation: Optional[str] = None
+    description: Optional[str] = None
+
+
 @router.get("/")
 def list_locations(db: Session = Depends(get_db)):
     locations = db.query(Location).order_by(Location.name).all()
@@ -36,6 +42,21 @@ def create_location(data: LocationCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(loc)
     return {"id": loc.id, "name": loc.name, "sublocation": loc.sublocation}
+
+
+@router.patch("/{location_id}")
+def update_location(location_id: int, data: LocationUpdate, db: Session = Depends(get_db)):
+    loc = db.query(Location).filter(Location.id == location_id).first()
+    if not loc:
+        raise HTTPException(status_code=404, detail="Location not found")
+    updates = data.model_dump(exclude_unset=True)
+    if "name" in updates and not (updates["name"] or "").strip():
+        raise HTTPException(status_code=400, detail="Name cannot be empty")
+    for field, value in updates.items():
+        setattr(loc, field, value.strip() if isinstance(value, str) else value)
+    db.commit()
+    db.refresh(loc)
+    return {"id": loc.id, "name": loc.name, "sublocation": loc.sublocation, "description": loc.description}
 
 
 @router.delete("/{location_id}")

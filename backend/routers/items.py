@@ -15,6 +15,7 @@ class ItemCreate(BaseModel):
     description: Optional[str] = None
     quantity: Optional[float] = 1
     unit: Optional[str] = None
+    author: Optional[str] = None
     low_stock_threshold: Optional[float] = None
     location_id: Optional[int] = None
     category_id: Optional[int] = None
@@ -26,6 +27,7 @@ class ItemUpdate(BaseModel):
     description: Optional[str] = None
     quantity: Optional[float] = None
     unit: Optional[str] = None
+    author: Optional[str] = None
     low_stock_threshold: Optional[float] = None
     location_id: Optional[int] = None
     category_id: Optional[int] = None
@@ -39,6 +41,7 @@ def item_to_dict(item: Item) -> dict:
         "description": item.description,
         "quantity": item.quantity,
         "unit": item.unit,
+        "author": item.author,
         "low_stock_threshold": item.low_stock_threshold,
         "location": {"id": item.location.id, "name": item.location.name, "sublocation": item.location.sublocation} if item.location else None,
         "category": {"id": item.category.id, "name": item.category.name, "icon": item.category.icon, "color": item.category.color} if item.category else None,

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Plus, MapPin, Trash2 } from 'lucide-react'
-import { getLocations, createLocation, Location } from '../lib/api'
+import { Plus, MapPin, Trash2, Pencil, Check, X } from 'lucide-react'
+import { getLocations, createLocation, updateLocation, Location } from '../lib/api'
 import axios from 'axios'
 import toast from 'react-hot-toast'
 
@@ -9,6 +9,8 @@ export default function Locations() {
   const [locations, setLocations] = useState<Location[]>([])
   const [name, setName] = useState(''); const [sub, setSub] = useState('')
   const [adding, setAdding] = useState(false)
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [editForm, setEditForm] = useState({ name: '', sublocation: '' })
 
   const load = () => getLocations().then(setLocations)
   useEffect(() => { load() }, [])
@@ -25,6 +27,19 @@ export default function Locations() {
   async function remove(id: number) {
     await axios.delete(`/api/locations/${id}`)
     toast.success('Location removed'); load()
+  }
+
+  function startEdit(loc: Location) {
+    setEditingId(loc.id)
+    setEditForm({ name: loc.name, sublocation: loc.sublocation || '' })
+  }
+
+  async function saveEdit(id: number) {
+    if (!editForm.name.trim()) return toast.error('Name is required')
+    await updateLocation(id, { name: editForm.name.trim(), sublocation: editForm.sublocation.trim() })
+    toast.success('Location updated')
+    setEditingId(null)
+    load()
   }
 
   return (
@@ -53,15 +68,42 @@ export default function Locations() {
             <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center flex-shrink-0">
               <MapPin size={18} className="text-accent" />
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-white font-medium text-sm">{loc.name}</p>
-              {loc.sublocation && <p className="text-surface-muted text-xs">{loc.sublocation}</p>}
-              <p className="text-surface-muted text-xs mt-0.5">{loc.item_count} items</p>
-            </div>
-            <button onClick={() => remove(loc.id)}
-              className="opacity-0 group-hover:opacity-100 text-surface-muted hover:text-red-400 transition-all">
-              <Trash2 size={15} />
-            </button>
+            {editingId === loc.id ? (
+              <div className="flex-1 min-w-0 space-y-1.5">
+                <input autoFocus className="w-full bg-surface border border-accent/50 rounded-lg px-2 py-1 text-white text-sm focus:outline-none focus:border-accent"
+                  value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
+                  onKeyDown={e => { if (e.key === 'Enter') saveEdit(loc.id); if (e.key === 'Escape') setEditingId(null) }} />
+                <input className="w-full bg-surface border border-surface-border rounded-lg px-2 py-1 text-white text-xs focus:outline-none focus:border-accent"
+                  placeholder="Sub-location (optional)" value={editForm.sublocation}
+                  onChange={e => setEditForm(f => ({ ...f, sublocation: e.target.value }))}
+                  onKeyDown={e => { if (e.key === 'Enter') saveEdit(loc.id); if (e.key === 'Escape') setEditingId(null) }} />
+              </div>
+            ) : (
+              <div className="flex-1 min-w-0">
+                <p className="text-white font-medium text-sm">{loc.name}</p>
+                {loc.sublocation && <p className="text-surface-muted text-xs">{loc.sublocation}</p>}
+                <p className="text-surface-muted text-xs mt-0.5">{loc.item_count} items</p>
+              </div>
+            )}
+            {editingId === loc.id ? (
+              <div className="flex flex-col gap-1.5">
+                <button onClick={() => saveEdit(loc.id)} className="text-green-400 hover:text-green-300 transition-all">
+                  <Check size={16} />
+                </button>
+                <button onClick={() => setEditingId(null)} className="text-surface-muted hover:text-white transition-all">
+                  <X size={16} />
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-1.5 opacity-0 group-hover:opacity-100 transition-all">
+                <button onClick={() => startEdit(loc)} className="text-surface-muted hover:text-accent">
+                  <Pencil size={14} />
+                </button>
+                <button onClick={() => remove(loc.id)} className="text-surface-muted hover:text-red-400">
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            )}
           </motion.div>
         ))}
       </div>

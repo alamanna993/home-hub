@@ -81,9 +81,17 @@ def seed_defaults(db: Session):
     db.commit()
 
 
+def run_migrations():
+    """Lightweight column additions for existing installs (create_all won't alter tables)."""
+    from sqlalchemy import text
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE items ADD COLUMN IF NOT EXISTS author VARCHAR(200)"))
+
+
 @app.on_event("startup")
 def startup():
     Base.metadata.create_all(bind=engine)
+    run_migrations()
     db = Session(bind=engine)
     try:
         seed_defaults(db)

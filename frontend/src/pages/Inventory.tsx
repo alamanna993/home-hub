@@ -97,6 +97,7 @@ export default function Inventory() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="text-white font-medium text-sm leading-snug truncate">{item.name}</p>
+                    {item.author && <p className="text-surface-muted text-xs italic truncate">by {item.author}</p>}
                     {item.category && <p className="text-surface-muted text-xs">{item.category.name}</p>}
                   </div>
                 </div>
