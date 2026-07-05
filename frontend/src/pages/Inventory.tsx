@@ -15,11 +15,17 @@ export default function Inventory() {
   const [loading, setLoading] = useState(true)
 
   const load = useCallback(async () => {
-    const params: Record<string, unknown> = {}
-    if (search) params.search = search
-    if (catFilter) params.category_id = catFilter
-    const [i, c, l] = await Promise.all([getItems(params), getCategories(), getLocations()])
-    setItems(i); setCategories(c); setLocations(l); setLoading(false)
+    try {
+      const params: Record<string, unknown> = {}
+      if (search) params.search = search
+      if (catFilter) params.category_id = catFilter
+      const [i, c, l] = await Promise.all([getItems(params), getCategories(), getLocations()])
+      setItems(i); setCategories(c); setLocations(l)
+    } catch {
+      toast.error('Could not load inventory — is the backend running?')
+    } finally {
+      setLoading(false)
+    }
   }, [search, catFilter])
 
   useEffect(() => { load() }, [load])

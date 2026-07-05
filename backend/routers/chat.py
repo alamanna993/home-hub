@@ -189,5 +189,9 @@ async def chat(req: ChatRequest, db: Session = Depends(get_db)):
         return {"reply": reply, "action": action}
 
     else:
-        reply = "🤔 I'm not sure what you meant. Try: 'where is my drill', 'add 2 boxes of pasta to pantry', or 'what's running low?'"
+        if parsed.get("no_ai"):
+            from llm import NO_AI_NOTICE
+            reply = f"🤖 {NO_AI_NOTICE}"
+        else:
+            reply = "🤔 I'm not sure what you meant. Try: 'where is my drill', 'add 2 boxes of pasta to pantry', or 'what's running low?'"
         return {"reply": reply, "action": "unknown", "parsed": parsed}

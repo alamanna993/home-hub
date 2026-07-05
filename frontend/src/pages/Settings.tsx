@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Save, Eye, EyeOff, KeyRound, RefreshCw } from 'lucide-react'
+import { Save, Eye, EyeOff, KeyRound, RefreshCw, Database } from 'lucide-react'
 import axios from 'axios'
 import toast from 'react-hot-toast'
 import { useAuth } from '../hooks/useAuth'
+import ModelSelect from '../components/ModelSelect'
 
 interface Setting {
   key: string
@@ -36,6 +37,7 @@ const PROVIDER_OPTIONS = [
   { value: 'lmstudio', label: 'LM Studio (local)' },
   { value: 'openai', label: 'OpenAI' },
   { value: 'claude', label: 'Claude (Anthropic)' },
+  { value: 'none', label: 'None — AI disabled' },
 ]
 
 const PROVIDER_FIELDS: Record<string, string[]> = {
@@ -43,6 +45,14 @@ const PROVIDER_FIELDS: Record<string, string[]> = {
   lmstudio: ['lmstudio_host', 'lmstudio_model'],
   openai: ['openai_api_key', 'openai_model'],
   claude: ['anthropic_api_key', 'claude_model'],
+  none: [],
+}
+
+const MODEL_KEYS: Record<string, string> = {
+  ollama_model: 'ollama',
+  lmstudio_model: 'lmstudio',
+  openai_model: 'openai',
+  claude_model: 'claude',
 }
 
 const GROUPS = [
@@ -50,6 +60,87 @@ const GROUPS = [
   { label: '🤖 Discord', keys: ['discord_token', 'discord_channel_id', 'low_stock_alert_channel'] },
   { label: '🎨 Dashboard', keys: ['site_title'] },
 ]
+
+function StorageSection() {
+  const [status, setStatus] = useState<any>(null)
+  const [dataPath, setDataPath] = useState('')
+  const [backupPath, setBackupPath] = useState('')
+  const [cmds, setCmds] = useState<{ commands: string[]; note: string } | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    axios.get('/api/settings/setup/status').then(r => {
+      setStatus(r.data)
+      setDataPath(r.data.data_path || '')
+      setBackupPath(r.data.backup_path || '')
+    }).catch(() => {})
+  }, [])
+
+  async function save() {
+    setBusy(true)
+    try {
+      const { data } = await axios.post('/api/settings/storage', {
+        data_path: dataPath.trim(), backup_path: backupPath.trim(),
+      })
+      setCmds({ commands: data.commands, note: data.note })
+      toast.success('Saved to .env')
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || 'Failed to save')
+    } finally { setBusy(false) }
+  }
+
+  if (!status) return null
+
+  return (
+    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
+      className="bg-surface-card border border-surface-border rounded-2xl p-5 shadow-card space-y-4">
+      <h3 className="text-white font-semibold text-sm flex items-center gap-2">
+        <Database size={15} className="text-accent" /> Storage
+      </h3>
+      {status.env_file_writable ? (
+        <>
+          <p className="text-surface-muted text-xs leading-relaxed">
+            Where the database and its nightly backups live on the Docker host. Changes are written to
+            <span className="font-mono text-white"> .env</span> and take effect after a restart.
+            Leave blank for the defaults.
+          </p>
+          <div>
+            <label className="text-xs text-surface-muted mb-1.5 block font-medium">Database folder</label>
+            <input className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
+              placeholder={status.data_path_display} value={dataPath}
+              onChange={e => { setDataPath(e.target.value); setCmds(null) }} />
+          </div>
+          <div>
+            <label className="text-xs text-surface-muted mb-1.5 block font-medium">Backup folder (use a different disk!)</label>
+            <input className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
+              placeholder={status.backup_path_display} value={backupPath}
+              onChange={e => { setBackupPath(e.target.value); setCmds(null) }} />
+          </div>
+          <button onClick={save} disabled={busy}
+            className="w-full py-2.5 bg-accent hover:bg-accent-hover disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-all">
+            {busy ? 'Saving…' : 'Save Storage Paths'}
+          </button>
+          {cmds && (
+            <div className="bg-surface rounded-lg p-3 space-y-2">
+              <p className="text-orange-300 text-xs font-medium">⚠️ Saved — now run this on the Docker host:</p>
+              <pre className="text-green-400 font-mono text-[11px] whitespace-pre-wrap break-all bg-black/30 rounded p-2">{cmds.commands.join('\n')}</pre>
+              <p className="text-surface-muted text-[10px] leading-relaxed">{cmds.note}</p>
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="space-y-2 text-xs">
+          <p className="text-surface-muted">Database: <span className="text-white font-mono">{status.data_path_display}</span></p>
+          <p className="text-surface-muted">Backups: <span className="text-white font-mono">{status.backup_path_display}</span></p>
+          <p className="text-surface-muted leading-relaxed">
+            To change these, set <span className="font-mono text-white">DATA_PATH</span> / <span className="font-mono text-white">BACKUP_PATH</span> in
+            <span className="font-mono text-white"> .env</span> and run <span className="font-mono text-white">docker compose up -d</span>.
+          </p>
+        </div>
+      )}
+    </motion.div>
+  )
+}
 
 export default function Settings() {
   const { username } = useAuth()
@@ -206,6 +297,7 @@ export default function Settings() {
           const s = settingsByKey[key]
           if (!s) return null
           const isSecret = s.secret
+          const modelProvider = MODEL_KEYS[key]
           return (
             <div key={key}>
               <div className="flex items-center justify-between mb-1.5">
@@ -215,18 +307,25 @@ export default function Settings() {
               <p className="text-surface-muted text-xs mb-2">{s.description}</p>
               <div className="flex gap-2">
                 <div className="relative flex-1">
-                  <input
-                    type={isSecret && !revealed[key] ? 'password' : 'text'}
-                    className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent pr-10"
-                    placeholder={isSecret && s.is_set ? '••••••••  (leave blank to keep current)' : `Enter ${LABELS[key] || key}`}
-                    value={isSecret ? (edits[key] ?? '') : getValue(s)}
-                    onChange={e => setEdits(prev => ({ ...prev, [key]: e.target.value }))}
-                  />
-                  {isSecret && (
-                    <button onClick={() => setRevealed(r => ({ ...r, [key]: !r[key] }))}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-surface-muted hover:text-white transition-colors">
-                      {revealed[key] ? <EyeOff size={14} /> : <Eye size={14} />}
-                    </button>
+                  {modelProvider ? (
+                    <ModelSelect provider={modelProvider} value={getValue(s)}
+                      onChange={v => setEdits(prev => ({ ...prev, [key]: v }))} />
+                  ) : (
+                    <>
+                      <input
+                        type={isSecret && !revealed[key] ? 'password' : 'text'}
+                        className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent pr-10"
+                        placeholder={isSecret && s.is_set ? '••••••••  (leave blank to keep current)' : `Enter ${LABELS[key] || key}`}
+                        value={isSecret ? (edits[key] ?? '') : getValue(s)}
+                        onChange={e => setEdits(prev => ({ ...prev, [key]: e.target.value }))}
+                      />
+                      {isSecret && (
+                        <button onClick={() => setRevealed(r => ({ ...r, [key]: !r[key] }))}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-surface-muted hover:text-white transition-colors">
+                          {revealed[key] ? <EyeOff size={14} /> : <Eye size={14} />}
+                        </button>
+                      )}
+                    </>
                   )}
                 </div>
                 <button
@@ -242,6 +341,9 @@ export default function Settings() {
           )
         })}
       </motion.div>
+
+      {/* Storage */}
+      <StorageSection />
 
       {/* Change Password */}
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}

@@ -5,12 +5,16 @@ import { ArrowLeft, ArrowRight, Bot, Check, CheckCircle2, Database, KeyRound, Me
 import axios from 'axios'
 import toast from 'react-hot-toast'
 import { cn } from '../lib/utils'
+import ModelSelect from '../components/ModelSelect'
 
 interface SetupStatus {
   setup_complete: boolean
   default_password_in_use: boolean
   data_path: string
   backup_path: string
+  data_path_display: string
+  backup_path_display: string
+  env_file_writable: boolean
   llm_provider: string
   telegram_configured: boolean
 }
@@ -18,20 +22,21 @@ interface SetupStatus {
 const PROVIDERS = [
   { value: 'ollama', label: 'Ollama', sub: 'Local, free — runs on your machine', fields: [
     { key: 'ollama_host', label: 'Server URL', placeholder: 'http://host.docker.internal:11434' },
-    { key: 'ollama_model', label: 'Model', placeholder: 'llama3.2, hermes3, mistral…' },
+    { key: 'ollama_model', label: 'Model', placeholder: 'llama3.2, hermes3, mistral…', model: true },
   ]},
   { value: 'lmstudio', label: 'LM Studio', sub: 'Local, free — OpenAI-compatible server', fields: [
     { key: 'lmstudio_host', label: 'Server URL', placeholder: 'http://host.docker.internal:1234' },
-    { key: 'lmstudio_model', label: 'Model', placeholder: 'leave blank to use the loaded model' },
+    { key: 'lmstudio_model', label: 'Model', placeholder: 'leave blank to use the loaded model', model: true },
   ]},
   { value: 'openai', label: 'OpenAI', sub: 'Cloud — needs an API key', fields: [
     { key: 'openai_api_key', label: 'API Key', placeholder: 'sk-…', secret: true },
-    { key: 'openai_model', label: 'Model', placeholder: 'gpt-4o-mini' },
+    { key: 'openai_model', label: 'Model', placeholder: 'gpt-4o-mini', model: true },
   ]},
   { value: 'claude', label: 'Claude', sub: 'Cloud (Anthropic) — needs an API key', fields: [
     { key: 'anthropic_api_key', label: 'API Key', placeholder: 'sk-ant-…', secret: true },
-    { key: 'claude_model', label: 'Model', placeholder: 'claude-haiku-4-5-20251001' },
+    { key: 'claude_model', label: 'Model', placeholder: 'claude-haiku-4-5', model: true },
   ]},
+  { value: 'none', label: 'No AI yet', sub: 'Skip for now — everything else still works', fields: [] },
 ]
 
 const STEPS = ['Welcome', 'Password', 'Storage', 'AI Model', 'Bots', 'Done']
@@ -46,6 +51,11 @@ export default function Setup() {
   const [pw, setPw] = useState({ current: 'admin', next: '', confirm: '' })
   const [pwDone, setPwDone] = useState(false)
 
+  // storage step
+  const [dataPath, setDataPath] = useState('')
+  const [backupPath, setBackupPath] = useState('')
+  const [storageCmds, setStorageCmds] = useState<{ commands: string[]; note: string } | null>(null)
+
   // AI step
   const [provider, setProvider] = useState('ollama')
   const [fields, setFields] = useState<Record<string, string>>({})
@@ -59,9 +69,25 @@ export default function Setup() {
     axios.get<SetupStatus>('/api/settings/setup/status').then(r => {
       setStatus(r.data)
       setProvider(r.data.llm_provider || 'ollama')
+      setDataPath(r.data.data_path || '')
+      setBackupPath(r.data.backup_path || '')
       if (!r.data.default_password_in_use) setPwDone(true)
     }).catch(() => toast.error('Could not load setup status'))
   }, [])
+
+  async function saveStorage() {
+    setBusy(true)
+    try {
+      const { data } = await axios.post('/api/settings/storage', {
+        data_path: dataPath.trim(),
+        backup_path: backupPath.trim(),
+      })
+      setStorageCmds({ commands: data.commands, note: data.note })
+      toast.success('Storage paths saved to .env')
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || 'Failed to save storage paths')
+    } finally { setBusy(false) }
+  }
 
   async function savePassword() {
     if (pw.next !== pw.confirm) return toast.error('Passwords do not match')
@@ -196,27 +222,63 @@ export default function Setup() {
             {step === 2 && (
               <>
                 <h2 className="text-white text-lg font-bold flex items-center gap-2"><Database size={18} className="text-accent" /> Where your data lives</h2>
-                <div className="space-y-3 text-sm">
-                  <div className="bg-surface rounded-lg px-3 py-2.5">
-                    <p className="text-surface-muted text-xs mb-0.5">Database folder</p>
-                    <p className="text-white font-mono text-xs break-all">{status?.data_path}</p>
+                {status?.env_file_writable ? (
+                  <>
+                    <p className="text-surface-muted text-xs leading-relaxed">
+                      Pick host folders for the database and its nightly backups. Leave blank to keep
+                      the safe defaults (a Docker-managed volume + a <span className="font-mono text-white">backups</span> folder).
+                      Put the backups on a <em>different</em> disk than the database so one drive failure can't take both.
+                    </p>
+                    <div className="space-y-2.5">
+                      <div>
+                        <label className="text-xs text-surface-muted mb-1 block">Database folder (e.g. /volume1/docker/homehub/db)</label>
+                        <input className={input} placeholder={status?.data_path_display}
+                          value={dataPath} onChange={e => { setDataPath(e.target.value); setStorageCmds(null) }} />
+                      </div>
+                      <div>
+                        <label className="text-xs text-surface-muted mb-1 block">Backup folder (e.g. /volume2/backup/homehub)</label>
+                        <input className={input} placeholder={status?.backup_path_display}
+                          value={backupPath} onChange={e => { setBackupPath(e.target.value); setStorageCmds(null) }} />
+                      </div>
+                    </div>
+                    {(dataPath.trim() !== (status?.data_path || '') || backupPath.trim() !== (status?.backup_path || '')) && !storageCmds && (
+                      <button onClick={saveStorage} disabled={busy}
+                        className="w-full flex items-center justify-center gap-2 border border-surface-border hover:border-accent text-white text-sm py-2.5 rounded-lg transition-all disabled:opacity-50">
+                        {busy ? <RefreshCw size={15} className="animate-spin" /> : <Check size={15} />} Save Storage Paths
+                      </button>
+                    )}
+                    {storageCmds && (
+                      <div className="bg-surface rounded-lg p-3 space-y-2">
+                        <p className="text-orange-300 text-xs font-medium">⚠️ Saved — takes effect after a restart. Run on the Docker host:</p>
+                        <pre className="text-green-400 font-mono text-[11px] whitespace-pre-wrap break-all bg-black/30 rounded p-2">{storageCmds.commands.join('\n')}</pre>
+                        <p className="text-surface-muted text-[10px] leading-relaxed">{storageCmds.note}</p>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="space-y-3 text-sm">
+                    <div className="bg-surface rounded-lg px-3 py-2.5">
+                      <p className="text-surface-muted text-xs mb-0.5">Database folder</p>
+                      <p className="text-white font-mono text-xs break-all">{status?.data_path_display}</p>
+                    </div>
+                    <div className="bg-surface rounded-lg px-3 py-2.5">
+                      <p className="text-surface-muted text-xs mb-0.5">Automatic nightly backups</p>
+                      <p className="text-white font-mono text-xs break-all">{status?.backup_path_display}</p>
+                    </div>
+                    <p className="text-surface-muted leading-relaxed text-xs">
+                      To change these, set <span className="font-mono text-white">DATA_PATH</span> and
+                      <span className="font-mono text-white"> BACKUP_PATH</span> in
+                      <span className="font-mono text-white"> .env</span> and run
+                      <span className="font-mono text-white"> docker compose up -d</span>.
+                      (Editing from here requires the .env bind mount added in newer versions of docker-compose.yml.)
+                    </p>
                   </div>
-                  <div className="bg-surface rounded-lg px-3 py-2.5">
-                    <p className="text-surface-muted text-xs mb-0.5">Automatic nightly backups</p>
-                    <p className="text-white font-mono text-xs break-all">{status?.backup_path}</p>
-                  </div>
-                  <p className="text-surface-muted leading-relaxed text-xs">
-                    To store the database on a NAS folder instead, stop the stack, set
-                    <span className="font-mono text-white"> DATA_PATH=/your/nas/folder </span>
-                    in <span className="font-mono text-white">.env</span>, and run
-                    <span className="font-mono text-white"> docker compose up -d</span>.
-                    Point <span className="font-mono text-white">BACKUP_PATH</span> at a <em>different</em> disk
-                    so a drive failure can't take out both copies.
-                  </p>
-                </div>
+                )}
                 <div className="flex justify-between pt-2">
                   <button className={ghostBtn} onClick={() => setStep(1)}><ArrowLeft size={15} /> Back</button>
-                  <button className={primaryBtn} onClick={() => setStep(3)}>Looks Good <ArrowRight size={15} /></button>
+                  <button className={primaryBtn} onClick={() => setStep(3)}>
+                    {storageCmds || !status?.env_file_writable ? 'Next' : 'Keep Defaults'} <ArrowRight size={15} />
+                  </button>
                 </div>
               </>
             )}
@@ -239,25 +301,41 @@ export default function Setup() {
                   {activeProvider.fields.map(f => (
                     <div key={f.key}>
                       <label className="text-xs text-surface-muted mb-1 block">{f.label}</label>
-                      <input type={(f as any).secret ? 'password' : 'text'} className={input} placeholder={f.placeholder}
-                        value={fields[f.key] ?? ''} onChange={e => setFields(prev => ({ ...prev, [f.key]: e.target.value }))} />
+                      {(f as any).model ? (
+                        <ModelSelect provider={provider} value={fields[f.key] ?? ''}
+                          onChange={v => setFields(prev => ({ ...prev, [f.key]: v }))} />
+                      ) : (
+                        <input type={(f as any).secret ? 'password' : 'text'} className={input} placeholder={f.placeholder}
+                          value={fields[f.key] ?? ''} onChange={e => setFields(prev => ({ ...prev, [f.key]: e.target.value }))} />
+                      )}
                     </div>
                   ))}
                 </div>
-                <button onClick={testLLM} disabled={busy}
-                  className="w-full flex items-center justify-center gap-2 border border-surface-border hover:border-accent text-white text-sm py-2.5 rounded-lg transition-all disabled:opacity-50">
-                  {busy ? <RefreshCw size={15} className="animate-spin" /> : '⚡'} Test Connection
-                </button>
-                {testResult && (
-                  <div className={cn('flex items-start gap-2 text-xs rounded-lg px-3 py-2.5',
-                    testResult.ok ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400')}>
-                    {testResult.ok ? <CheckCircle2 size={15} className="flex-shrink-0 mt-0.5" /> : <XCircle size={15} className="flex-shrink-0 mt-0.5" />}
-                    <span className="break-all">{testResult.text}</span>
-                  </div>
+                {provider === 'none' ? (
+                  <p className="text-surface-muted text-xs bg-surface rounded-lg px-3 py-2.5 leading-relaxed">
+                    👍 Totally fine — inventory, calendar, meals, and chores all work without AI.
+                    Basic chat lookups ("where is my drill") still work too. Add a model anytime in Settings.
+                  </p>
+                ) : (
+                  <>
+                    <button onClick={testLLM} disabled={busy}
+                      className="w-full flex items-center justify-center gap-2 border border-surface-border hover:border-accent text-white text-sm py-2.5 rounded-lg transition-all disabled:opacity-50">
+                      {busy ? <RefreshCw size={15} className="animate-spin" /> : '⚡'} Test Connection
+                    </button>
+                    {testResult && (
+                      <div className={cn('flex items-start gap-2 text-xs rounded-lg px-3 py-2.5',
+                        testResult.ok ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400')}>
+                        {testResult.ok ? <CheckCircle2 size={15} className="flex-shrink-0 mt-0.5" /> : <XCircle size={15} className="flex-shrink-0 mt-0.5" />}
+                        <span className="break-all">{testResult.text}</span>
+                      </div>
+                    )}
+                  </>
                 )}
                 <div className="flex justify-between pt-2">
                   <button className={ghostBtn} onClick={() => setStep(2)}><ArrowLeft size={15} /> Back</button>
-                  <button className={primaryBtn} disabled={busy} onClick={() => saveProvider(true)}>Save &amp; Next <ArrowRight size={15} /></button>
+                  <button className={primaryBtn} disabled={busy} onClick={() => saveProvider(true)}>
+                    {provider === 'none' ? 'Skip for Now' : 'Save & Next'} <ArrowRight size={15} />
+                  </button>
                 </div>
               </>
             )}

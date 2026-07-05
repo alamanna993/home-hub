@@ -8,8 +8,31 @@ import { timeAgo } from '../lib/utils'
 
 export default function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => { getStats().then(setStats).catch(console.error) }, [])
+  function load() {
+    setError(null)
+    getStats().then(setStats).catch(e => {
+      setError(e?.response?.data?.detail || e?.message || 'Could not load stats')
+    })
+  }
+  useEffect(() => { load() }, [])
+
+  if (error) {
+    return (
+      <div className="p-6">
+        <div className="bg-surface-card border border-red-500/30 rounded-2xl p-6 max-w-md mx-auto mt-16 text-center space-y-3">
+          <p className="text-3xl">⚠️</p>
+          <p className="text-white font-medium text-sm">Couldn't load the dashboard</p>
+          <p className="text-surface-muted text-xs">{error}</p>
+          <button onClick={load}
+            className="bg-accent hover:bg-accent-hover text-white text-sm font-medium px-5 py-2 rounded-lg transition-all">
+            Retry
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   if (!stats) {
     return (

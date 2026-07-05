@@ -109,9 +109,33 @@ async def _parse_claude(user_message: str, api_key: str, model: str) -> dict:
     return _extract_json(response.content[0].text)
 
 
+NO_AI_NOTICE = ("No AI model is configured yet — set one up in Settings → AI Provider. "
+                "Simple lookups still work: try 'where is <item>' or 'what's running low'.")
+
+
+def _keyword_parse(message: str) -> dict:
+    """Best-effort intent guess with no LLM, so the app stays useful before AI setup."""
+    import re
+    text = message.lower().strip().rstrip("?.!")
+    base = {"action": "unknown", "item": None, "location": None, "sublocation": None,
+            "category": None, "quantity": None, "unit": None, "notes": None, "confidence": 0.3}
+
+    if re.search(r"\b(low|running out|restock|out of stock)\b", text):
+        return {**base, "action": "low_stock"}
+
+    m = re.match(r"(?:where(?:'s| is| are)?|find|do we have|do i have|got any)\s+(?:my |the |any )?(.+)", text)
+    if m:
+        return {**base, "action": "find_item", "item": m.group(1).strip()}
+
+    return {**base, "no_ai": True}
+
+
 async def parse_message(user_message: str, db=None) -> dict:
     try:
         provider = _db_setting(db, "llm_provider", env_settings.llm_provider)
+
+        if provider in ("", "none"):
+            return _keyword_parse(user_message)
 
         if provider == "claude":
             api_key = _db_setting(db, "anthropic_api_key", env_settings.anthropic_api_key)
@@ -140,6 +164,8 @@ async def parse_message(user_message: str, db=None) -> dict:
 async def generate_response(prompt: str, context: str = "", db=None) -> str:
     try:
         provider = _db_setting(db, "llm_provider", env_settings.llm_provider)
+        if provider in ("", "none"):
+            return NO_AI_NOTICE
         messages = []
         if context:
             messages.append({"role": "system", "content": f"Home inventory context:\n{context}"})

@@ -103,15 +103,133 @@ def get_runtime_settings(db: Session = Depends(get_db), _=Depends(require_api_ke
 
 @router.get("/setup/status")
 def setup_status(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    import os
     rows = {s.key: s.value for s in db.query(Setting).all()}
+    env_file = env_settings.env_file_path
     return {
         "setup_complete": rows.get("setup_complete", "false") == "true",
         "default_password_in_use": verify_password("admin", current_user.hashed_password),
-        "data_path": env_settings.data_path or "(Docker named volume: postgres_data)",
-        "backup_path": env_settings.backup_path or "./backups (next to docker-compose.yml)",
+        "data_path": env_settings.data_path,
+        "backup_path": env_settings.backup_path,
+        "data_path_display": env_settings.data_path or "(Docker named volume: postgres_data)",
+        "backup_path_display": env_settings.backup_path or "./backups (next to docker-compose.yml)",
+        "env_file_writable": bool(env_file) and os.path.isfile(env_file) and os.access(env_file, os.W_OK),
         "llm_provider": rows.get("llm_provider", "ollama"),
         "telegram_configured": bool(rows.get("telegram_bot_token")),
     }
+
+
+class StorageUpdate(BaseModel):
+    data_path: Optional[str] = None
+    backup_path: Optional[str] = None
+
+
+def _set_env_line(lines: list[str], key: str, value: str) -> list[str]:
+    """Replace (or append) KEY=value, uncommenting a '#KEY=' line if that's all there is."""
+    new_line = f"{key}={value}"
+    for i, line in enumerate(lines):
+        if line.startswith(f"{key}="):
+            lines[i] = new_line
+            return lines
+    for i, line in enumerate(lines):
+        if line.lstrip("# ").startswith(f"{key}="):
+            lines[i] = new_line
+            return lines
+    lines.append(new_line)
+    return lines
+
+
+@router.post("/storage")
+def update_storage(data: StorageUpdate, _: User = Depends(get_current_user)):
+    import os
+    env_file = env_settings.env_file_path
+    if not env_file or not os.path.isfile(env_file):
+        raise HTTPException(
+            status_code=400,
+            detail="The .env file isn't mounted into the backend container — edit .env by hand instead "
+                   "(set DATA_PATH / BACKUP_PATH) and run: docker compose up -d",
+        )
+    # Rewrite in place (seek+truncate) — replacing the file would break the Docker bind mount.
+    with open(env_file, "r+", encoding="utf-8") as f:
+        lines = f.read().splitlines()
+        if data.data_path is not None:
+            lines = _set_env_line(lines, "DATA_PATH", data.data_path.strip())
+        if data.backup_path is not None:
+            lines = _set_env_line(lines, "BACKUP_PATH", data.backup_path.strip())
+        f.seek(0)
+        f.write("\n".join(lines) + "\n")
+        f.truncate()
+
+    commands = ["docker compose up -d"]
+    if data.data_path and data.data_path.strip() and data.data_path.strip() != env_settings.data_path:
+        commands.insert(0,
+            f'docker run --rm -v home-hub_postgres_data:/from -v "{data.data_path.strip()}":/to alpine sh -c "cp -a /from/. /to/"')
+    return {
+        "ok": True,
+        "saved": {"data_path": data.data_path, "backup_path": data.backup_path},
+        "restart_required": True,
+        "commands": commands,
+        "note": "Run these on the machine hosting Docker, from the HomeHub folder. "
+                "The first command copies your existing data to the new folder (skip it on a fresh install); "
+                "the volume name may differ if your folder isn't named 'home-hub' - check with: docker volume ls",
+    }
+
+
+CURATED_MODELS = {
+    "claude": ["claude-haiku-4-5", "claude-sonnet-4-6", "claude-opus-4-8", "claude-haiku-4-5-20251001"],
+    "openai": ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1"],
+}
+
+
+@router.get("/models")
+async def list_models(provider: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    """List models available for a provider: live from the server/API when possible, curated fallback."""
+    import httpx
+    rows = {s.key: s.value for s in db.query(Setting).all()}
+    try:
+        if provider == "ollama":
+            host = rows.get("ollama_host") or env_settings.ollama_host
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                r = await client.get(f"{host}/api/tags")
+                r.raise_for_status()
+                return {"models": [m["name"] for m in r.json().get("models", [])], "source": "live"}
+
+        elif provider == "lmstudio":
+            host = rows.get("lmstudio_host") or env_settings.lmstudio_host
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                r = await client.get(f"{host}/v1/models")
+                r.raise_for_status()
+                return {"models": [m["id"] for m in r.json().get("data", [])], "source": "live"}
+
+        elif provider == "claude":
+            api_key = rows.get("anthropic_api_key") or env_settings.anthropic_api_key
+            if api_key:
+                async with httpx.AsyncClient(timeout=8.0) as client:
+                    r = await client.get(
+                        "https://api.anthropic.com/v1/models",
+                        headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
+                    )
+                    r.raise_for_status()
+                    return {"models": [m["id"] for m in r.json().get("data", [])], "source": "live"}
+            return {"models": CURATED_MODELS["claude"], "source": "static"}
+
+        elif provider == "openai":
+            api_key = rows.get("openai_api_key") or env_settings.openai_api_key
+            if api_key:
+                async with httpx.AsyncClient(timeout=8.0) as client:
+                    r = await client.get(
+                        "https://api.openai.com/v1/models",
+                        headers={"Authorization": f"Bearer {api_key}"},
+                    )
+                    r.raise_for_status()
+                    models = sorted(m["id"] for m in r.json().get("data", []) if m["id"].startswith(("gpt-", "o")))
+                    return {"models": models, "source": "live"}
+            return {"models": CURATED_MODELS["openai"], "source": "static"}
+
+        return {"models": [], "source": "static"}
+
+    except Exception as e:
+        return {"models": CURATED_MODELS.get(provider, []), "source": "static", "error": str(e)}
 
 
 @router.post("/setup/complete")

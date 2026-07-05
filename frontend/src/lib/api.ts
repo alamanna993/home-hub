@@ -2,6 +2,29 @@ import axios from 'axios'
 
 const api = axios.create({ baseURL: '/api' })
 
+// The instance snapshots global defaults at creation, so the login token set on
+// axios.defaults never reaches these requests — attach it per-request instead.
+function attachToken(config: any) {
+  const token = localStorage.getItem('hh_token')
+  if (token && !config.headers.Authorization) config.headers.Authorization = `Bearer ${token}`
+  return config
+}
+
+function onUnauthorized(error: any) {
+  if (error.response?.status === 401 && !window.location.pathname.startsWith('/login')) {
+    localStorage.removeItem('hh_token')
+    localStorage.removeItem('hh_user')
+    window.location.href = '/login'
+  }
+  return Promise.reject(error)
+}
+
+api.interceptors.request.use(attachToken)
+api.interceptors.response.use(r => r, onUnauthorized)
+// Some pages call the bare global axios — give it the same behavior.
+axios.interceptors.request.use(attachToken)
+axios.interceptors.response.use(r => r, onUnauthorized)
+
 export interface Location { id: number; name: string; sublocation?: string; item_count: number }
 export interface Category { id: number; name: string; icon?: string; color?: string }
 export interface Item {

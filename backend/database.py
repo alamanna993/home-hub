@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     # Informational, shown in the setup wizard (set by docker-compose)
     data_path: str = ""
     backup_path: str = ""
+    # Host .env file bind-mounted into the container so the UI can edit storage paths
+    env_file_path: str = ""
 
     # LLM provider: ollama | lmstudio | openai | claude
     llm_provider: str = "ollama"

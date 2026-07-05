@@ -61,7 +61,9 @@ For local AI you'll want [Ollama](https://ollama.com) with a model pulled
 
 ## Where the data lives (NAS deployment)
 
-Keep your data **outside** the containers so upgrades and rebuilds never touch it:
+Keep your data **outside** the containers so upgrades and rebuilds never touch it.
+**Pick the folders right in the setup wizard (or Settings → Storage)** — HomeHub writes them
+to `.env` for you and shows the exact restart/copy commands to run. Or set them by hand:
 
 - `DATA_PATH` — host folder for the live Postgres database, e.g. `/volume1/docker/homehub/db`.
   Left unset, a Docker named volume is used (fine for testing, still survives `docker compose down`).
@@ -85,8 +87,14 @@ Choose and configure the provider on the **Settings** page (admin) — or via `.
 | OpenAI | cloud | needs `OPENAI_API_KEY` |
 | Claude | cloud | needs `ANTHROPIC_API_KEY` |
 
-Changes made in Settings take effect immediately — no restart needed. Use the wizard's
-**Test Connection** button (or Settings) to confirm the model responds before relying on it.
+Changes made in Settings take effect immediately — no restart needed. Model fields are
+**dropdowns listing what's actually available** (installed Ollama/LM Studio models, or the
+provider's live model list once a key is saved). Use the wizard's **Test Connection** button
+to confirm the model responds before relying on it.
+
+**No AI yet? No problem.** Pick "No AI yet" in the wizard (or "None" in Settings) — inventory,
+calendar, meals, and chores all work without a model, and basic chat lookups like
+`where is my drill` still work via keyword matching.
 
 ## Telegram Bot
 
