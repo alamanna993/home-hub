@@ -9,16 +9,22 @@ from models import Item, Location, Category, AuditLog
 
 router = APIRouter(prefix="/items", tags=["items"])
 
-GROCERY_PATTERN = ("grocer", "food", "produce")
+AUTO_TRACK_CATEGORIES = ("grocer", "food", "produce", "cleaning", "laundry")
+AUTO_TRACK_LOCATIONS = ("laundry",)
 
 
 def is_grocery_category(cat: Optional[Category]) -> bool:
-    return bool(cat and any(p in cat.name.lower() for p in GROCERY_PATTERN))
+    return bool(cat and any(p in cat.name.lower() for p in AUTO_TRACK_CATEGORIES))
 
 
 def is_tracked(item: Item) -> bool:
-    """Groceries always track stock; everything else is opt-in."""
-    return is_grocery_category(item.category) or bool(item.track_stock)
+    """Consumables always track stock (grocery/cleaning categories, laundry room);
+    everything else is opt-in."""
+    if is_grocery_category(item.category):
+        return True
+    if item.location and any(p in item.location.name.lower() for p in AUTO_TRACK_LOCATIONS):
+        return True
+    return bool(item.track_stock)
 
 
 def is_low(item: Item) -> bool:

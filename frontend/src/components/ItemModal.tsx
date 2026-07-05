@@ -43,7 +43,10 @@ export default function ItemModal({ item, categories, locations, onClose, onSave
     ? newCat
     : categories.find(c => String(c.id) === form.category_id)?.name || ''
   const showAuthor = /book|media|dvd|vinyl|comic|magazine/i.test(selectedCatName) || Boolean(form.author)
-  const isGrocery = /grocer|food|produce/i.test(selectedCatName)
+  const selectedLocName = form.location_id === NEW
+    ? newLoc.name
+    : locations.find(l => String(l.id) === form.location_id)?.name || ''
+  const isGrocery = /grocer|food|produce|cleaning|laundry/i.test(selectedCatName) || /laundry/i.test(selectedLocName)
   const tracking = isGrocery || form.track_stock
 
   async function save() {
@@ -129,7 +132,7 @@ export default function ItemModal({ item, categories, locations, onClose, onSave
                   checked={tracking} disabled={isGrocery}
                   onChange={e => setForm(f => ({ ...f, track_stock: e.target.checked }))} />
                 Track stock level
-                {isGrocery && <span className="text-[10px] text-green-400 ml-auto">always on for groceries</span>}
+                {isGrocery && <span className="text-[10px] text-green-400 ml-auto">always on for consumables</span>}
               </label>
               {tracking && (
                 <div>
