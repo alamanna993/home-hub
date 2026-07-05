@@ -175,6 +175,77 @@ def update_storage(data: StorageUpdate, _: User = Depends(get_current_user)):
     }
 
 
+class StorageTest(BaseModel):
+    path: str
+    kind: str = "data"  # data | backup
+
+
+@router.post("/storage/test")
+def test_storage_path(data: StorageTest, _: User = Depends(get_current_user)):
+    """Sanity-check a storage path before saving. We can't see the host's filesystem from
+    this container, so we validate the path shape, reach out to network hosts, and flag
+    setups known to cause trouble (live Postgres on SMB/NFS shares)."""
+    import re
+    import socket
+
+    path = data.path.strip()
+    messages: list[dict] = []
+
+    def msg(level: str, text: str):
+        messages.append({"level": level, "text": text})
+
+    if not path:
+        msg("ok", "Blank = default: a Docker-managed volume (data) or the local backups folder. Always safe.")
+        return {"ok": True, "messages": messages}
+
+    unc = re.match(r"^[\\/]{2}([^\\/]+)[\\/](.+)", path)          # \\server\share or //server/share
+    nfs = re.match(r"^([A-Za-z0-9_.-]+):(/.*)", path)              # server:/export
+    win = re.match(r"^[A-Za-z]:[\\/]", path)                       # C:\folder
+    posix = path.startswith("/")
+
+    server = None
+    if unc:
+        server = unc.group(1)
+        msg("warning",
+            f"'{path}' is a network share (UNC). Docker can't bind-mount UNC paths directly — "
+            "mount the share on the Docker host first (or run HomeHub on the NAS itself and use "
+            "its local path, e.g. /volume1/docker/homehub).")
+    elif nfs:
+        server = nfs.group(1)
+        msg("warning",
+            f"'{path}' looks like an NFS export. Mount it on the Docker host first, then use the mount point here.")
+    elif win:
+        msg("ok", f"Windows path — fine if Docker runs on this Windows machine. Use forward slashes in .env: {path.replace(chr(92), '/')}")
+    elif posix:
+        msg("ok", "Path format looks good. If the folder doesn't exist yet, Docker creates it on restart.")
+    else:
+        msg("error", "That doesn't look like an absolute path. Use /folder/on/the/docker/host (NAS example: /volume1/docker/homehub).")
+        return {"ok": False, "messages": messages}
+
+    if server:
+        reachable = False
+        ports = [445, 2049] if unc else [2049, 445]  # SMB / NFS
+        for port in ports:
+            try:
+                with socket.create_connection((server, port), timeout=3):
+                    reachable = True
+                    break
+            except OSError:
+                continue
+        if reachable:
+            msg("ok", f"Good news: '{server}' is reachable on the network from HomeHub.")
+        else:
+            msg("error", f"Couldn't reach '{server}' on the usual file-sharing ports (SMB 445 / NFS 2049). Check the name/IP and that the NAS is on.")
+
+    if data.kind == "data" and (unc or nfs):
+        msg("warning",
+            "Running the live database over a network share risks corruption (file-locking issues). "
+            "Best practice: keep the database on a local disk and point the BACKUP folder at the NAS instead.")
+
+    ok = not any(m["level"] == "error" for m in messages)
+    return {"ok": ok, "messages": messages}
+
+
 CURATED_MODELS = {
     "claude": ["claude-haiku-4-5", "claude-sonnet-4-6", "claude-opus-4-8", "claude-haiku-4-5-20251001"],
     "openai": ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1"],

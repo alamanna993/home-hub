@@ -6,6 +6,7 @@ import axios from 'axios'
 import toast from 'react-hot-toast'
 import { cn } from '../lib/utils'
 import ModelSelect from '../components/ModelSelect'
+import StoragePathInput from '../components/StoragePathInput'
 
 interface SetupStatus {
   setup_complete: boolean
@@ -230,16 +231,12 @@ export default function Setup() {
                       Put the backups on a <em>different</em> disk than the database so one drive failure can't take both.
                     </p>
                     <div className="space-y-2.5">
-                      <div>
-                        <label className="text-xs text-surface-muted mb-1 block">Database folder (e.g. /volume1/docker/homehub/db)</label>
-                        <input className={input} placeholder={status?.data_path_display}
-                          value={dataPath} onChange={e => { setDataPath(e.target.value); setStorageCmds(null) }} />
-                      </div>
-                      <div>
-                        <label className="text-xs text-surface-muted mb-1 block">Backup folder (e.g. /volume2/backup/homehub)</label>
-                        <input className={input} placeholder={status?.backup_path_display}
-                          value={backupPath} onChange={e => { setBackupPath(e.target.value); setStorageCmds(null) }} />
-                      </div>
+                      <StoragePathInput label="Database folder (e.g. /volume1/docker/homehub/db)" kind="data"
+                        placeholder={status?.data_path_display} value={dataPath}
+                        onChange={v => { setDataPath(v); setStorageCmds(null) }} />
+                      <StoragePathInput label="Backup folder (e.g. /volume2/backup/homehub)" kind="backup"
+                        placeholder={status?.backup_path_display} value={backupPath}
+                        onChange={v => { setBackupPath(v); setStorageCmds(null) }} />
                     </div>
                     {(dataPath.trim() !== (status?.data_path || '') || backupPath.trim() !== (status?.backup_path || '')) && !storageCmds && (
                       <button onClick={saveStorage} disabled={busy}

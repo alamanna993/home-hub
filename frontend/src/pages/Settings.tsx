@@ -5,6 +5,7 @@ import axios from 'axios'
 import toast from 'react-hot-toast'
 import { useAuth } from '../hooks/useAuth'
 import ModelSelect from '../components/ModelSelect'
+import StoragePathInput from '../components/StoragePathInput'
 
 interface Setting {
   key: string
@@ -100,22 +101,17 @@ function StorageSection() {
       {status.env_file_writable ? (
         <>
           <p className="text-surface-muted text-xs leading-relaxed">
-            Where the database and its nightly backups live on the Docker host. Changes are written to
-            <span className="font-mono text-white"> .env</span> and take effect after a restart.
+            Any folder on the machine running Docker works — including NAS folders
+            (e.g. <span className="font-mono text-white">/volume1/docker/homehub</span> when HomeHub runs on the NAS).
+            Changes are written to <span className="font-mono text-white">.env</span> and take effect after a restart.
             Leave blank for the defaults.
           </p>
-          <div>
-            <label className="text-xs text-surface-muted mb-1.5 block font-medium">Database folder</label>
-            <input className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
-              placeholder={status.data_path_display} value={dataPath}
-              onChange={e => { setDataPath(e.target.value); setCmds(null) }} />
-          </div>
-          <div>
-            <label className="text-xs text-surface-muted mb-1.5 block font-medium">Backup folder (use a different disk!)</label>
-            <input className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
-              placeholder={status.backup_path_display} value={backupPath}
-              onChange={e => { setBackupPath(e.target.value); setCmds(null) }} />
-          </div>
+          <StoragePathInput label="Database folder" kind="data"
+            placeholder={status.data_path_display} value={dataPath}
+            onChange={v => { setDataPath(v); setCmds(null) }} />
+          <StoragePathInput label="Backup folder (use a different disk!)" kind="backup"
+            placeholder={status.backup_path_display} value={backupPath}
+            onChange={v => { setBackupPath(v); setCmds(null) }} />
           <button onClick={save} disabled={busy}
             className="w-full py-2.5 bg-accent hover:bg-accent-hover disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-all">
             {busy ? 'Saving…' : 'Save Storage Paths'}
