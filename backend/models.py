@@ -108,6 +108,7 @@ class Chore(Base):
     id = Column(Integer, primary_key=True)
     title = Column(String(200), nullable=False)
     description = Column(Text, nullable=True)
+    icon = Column(String(50), nullable=True)            # emoji shown on chore chart & calendar
     assigned_to = Column(String(100), nullable=True)    # family member name
     frequency = Column(String(20), default="weekly")    # once | daily | weekly | monthly
     day_of_week = Column(Integer, nullable=True)        # 0=Monday .. 6=Sunday, for weekly chores

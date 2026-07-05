@@ -16,6 +16,7 @@ interface Setting {
 }
 
 const LABELS: Record<string, string> = {
+  ics_urls: 'Calendar Feed URLs (iCal/ICS)',
   telegram_bot_token: 'Telegram Bot Token',
   telegram_allowed_chat_ids: 'Allowed Telegram Chat IDs',
   discord_token: 'Discord Bot Token',
@@ -57,6 +58,7 @@ const MODEL_KEYS: Record<string, string> = {
 }
 
 const GROUPS = [
+  { label: '📅 Calendar Sync', keys: ['ics_urls'] },
   { label: '✈️ Telegram', keys: ['telegram_bot_token', 'telegram_allowed_chat_ids'] },
   { label: '🤖 Discord', keys: ['discord_token', 'discord_channel_id', 'low_stock_alert_channel'] },
   { label: '🎨 Dashboard', keys: ['site_title'] },

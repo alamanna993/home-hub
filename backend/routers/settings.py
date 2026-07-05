@@ -16,6 +16,7 @@ SETTING_DEFINITIONS = [
     {"key": "discord_channel_id", "description": "Discord channel ID the bot listens in", "secret": False},
     {"key": "low_stock_alert_channel", "description": "Discord channel ID for automatic low-stock alerts (leave blank to disable)", "secret": False},
     {"key": "site_title", "description": "Dashboard title shown in the sidebar", "secret": False},
+    {"key": "ics_urls", "description": "External calendar feeds (iCal/ICS URLs from Google or Outlook), comma-separated. Events appear read-only on the calendar.", "secret": True},
     # LLM provider selection
     {"key": "llm_provider", "description": "AI provider: ollama | lmstudio | openai | claude", "secret": False},
     # Ollama

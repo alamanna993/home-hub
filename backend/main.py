@@ -87,6 +87,7 @@ def run_migrations():
     with engine.begin() as conn:
         conn.execute(text("ALTER TABLE items ADD COLUMN IF NOT EXISTS author VARCHAR(200)"))
         conn.execute(text("ALTER TABLE locations ADD COLUMN IF NOT EXISTS icon VARCHAR(50)"))
+        conn.execute(text("ALTER TABLE chores ADD COLUMN IF NOT EXISTS icon VARCHAR(50)"))
 
 
 @app.on_event("startup")

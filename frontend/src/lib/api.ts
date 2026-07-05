@@ -76,6 +76,7 @@ export const createCategory = (data: { name: string; icon?: string; color?: stri
 export interface CalendarEvent {
   id: number; title: string; description?: string
   start: string; end?: string; all_day: boolean; color?: string
+  read_only?: boolean
 }
 
 export const getEvents = (start?: string, end?: string) =>
@@ -110,7 +111,7 @@ export const deleteMeal = (id: number) =>
 
 // ---- Chores ----
 export interface Chore {
-  id: number; title: string; description?: string
+  id: number; title: string; description?: string; icon?: string
   assigned_to?: string; frequency: 'once' | 'daily' | 'weekly' | 'monthly'
   day_of_week?: number
   done_this_period: boolean
@@ -119,7 +120,7 @@ export interface Chore {
 
 export const getChores = () => api.get<Chore[]>('/chores/').then(r => r.data)
 
-export const createChore = (data: { title: string; description?: string; assigned_to?: string; frequency?: string; day_of_week?: number }) =>
+export const createChore = (data: { title: string; description?: string; icon?: string; assigned_to?: string; frequency?: string; day_of_week?: number }) =>
   api.post<Chore>('/chores/', data).then(r => r.data)
 
 export const completeChore = (id: number, completed_by?: string) =>

@@ -14,6 +14,7 @@ FREQUENCIES = ("once", "daily", "weekly", "monthly")
 class ChoreCreate(BaseModel):
     title: str
     description: Optional[str] = None
+    icon: Optional[str] = None
     assigned_to: Optional[str] = None
     frequency: str = "weekly"
     day_of_week: Optional[int] = None
@@ -22,6 +23,7 @@ class ChoreCreate(BaseModel):
 class ChoreUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
+    icon: Optional[str] = None
     assigned_to: Optional[str] = None
     frequency: Optional[str] = None
     day_of_week: Optional[int] = None
@@ -62,6 +64,7 @@ def chore_to_dict(chore: Chore, db: Session) -> dict:
         "id": chore.id,
         "title": chore.title,
         "description": chore.description,
+        "icon": chore.icon,
         "assigned_to": chore.assigned_to,
         "frequency": chore.frequency,
         "day_of_week": chore.day_of_week,

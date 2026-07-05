@@ -1,12 +1,77 @@
+import time
+import logging
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 from database import get_db
-from models import CalendarEvent
+from models import CalendarEvent, Setting
 
 router = APIRouter(prefix="/calendar", tags=["calendar"])
+logger = logging.getLogger("homehub")
+
+# External ICS feeds (Google/Outlook) — fetched read-only, cached for 10 minutes
+_ics_cache: dict = {"at": 0.0, "urls": "", "raw": []}
+
+
+async def get_external_events(db: Session, start: Optional[datetime], end: Optional[datetime]) -> list[dict]:
+    row = db.query(Setting).filter(Setting.key == "ics_urls").first()
+    urls = [u.strip() for u in (row.value or "").replace("\n", ",").split(",") if u.strip()] if row else []
+    if not urls:
+        return []
+
+    now = time.time()
+    if _ics_cache["urls"] != ",".join(urls) or now - _ics_cache["at"] > 600:
+        raw = []
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            for url in urls:
+                try:
+                    r = await client.get(url)
+                    r.raise_for_status()
+                    raw.append(r.content)
+                except Exception as e:
+                    logger.warning("Could not fetch ICS feed %s: %s", url[:60], e)
+        _ics_cache.update({"at": now, "urls": ",".join(urls), "raw": raw})
+
+    import icalendar
+    import recurring_ical_events
+
+    window_start = (start or datetime.now()).date() - timedelta(days=1)
+    window_end = (end or datetime.now() + timedelta(days=60)).date() + timedelta(days=1)
+
+    events = []
+    ext_id = 0
+    for raw in _ics_cache["raw"]:
+        try:
+            cal = icalendar.Calendar.from_ical(raw)
+            for occurrence in recurring_ical_events.of(cal).between(window_start, window_end):
+                dtstart = occurrence.get("DTSTART")
+                if dtstart is None:
+                    continue
+                value = dtstart.dt
+                all_day = not isinstance(value, datetime)
+                if isinstance(value, datetime):
+                    if value.tzinfo is not None:
+                        value = value.replace(tzinfo=None)  # keep the event's own wall-clock time
+                else:
+                    value = datetime(value.year, value.month, value.day)
+                ext_id -= 1
+                events.append({
+                    "id": ext_id,
+                    "title": str(occurrence.get("SUMMARY", "Busy")),
+                    "description": None,
+                    "start": value.isoformat(),
+                    "end": None,
+                    "all_day": all_day,
+                    "color": "#8b5cf6",
+                    "created_by": "external",
+                    "read_only": True,
+                })
+        except Exception as e:
+            logger.warning("Could not parse ICS feed: %s", e)
+    return events
 
 
 class EventCreate(BaseModel):
@@ -41,7 +106,7 @@ def event_to_dict(e: CalendarEvent) -> dict:
 
 
 @router.get("/")
-def list_events(
+async def list_events(
     start: Optional[datetime] = None,
     end: Optional[datetime] = None,
     db: Session = Depends(get_db),
@@ -51,8 +116,18 @@ def list_events(
         query = query.filter(CalendarEvent.start >= start)
     if end:
         query = query.filter(CalendarEvent.start < end)
-    events = query.order_by(CalendarEvent.start).all()
-    return [event_to_dict(e) for e in events]
+    events = [event_to_dict(e) for e in query.order_by(CalendarEvent.start).all()]
+
+    external = await get_external_events(db, start, end)
+    if external:
+        s_naive = start.replace(tzinfo=None) if start else None
+        e_naive = end.replace(tzinfo=None) if end else None
+        for ev in external:
+            ev_start = datetime.fromisoformat(ev["start"])
+            if (s_naive is None or ev_start >= s_naive) and (e_naive is None or ev_start < e_naive):
+                events.append(ev)
+        events.sort(key=lambda e: e["start"])
+    return events
 
 
 @router.post("/", status_code=201)

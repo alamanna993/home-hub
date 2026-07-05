@@ -1,16 +1,19 @@
 import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import { CheckCircle2, Circle, ClipboardList, Plus, Trash2 } from 'lucide-react'
+import { ClipboardList, Plus, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { getChores, createChore, completeChore, uncompleteChore, deleteChore, Chore } from '../lib/api'
+import EmojiPicker from '../components/EmojiPicker'
 import { cn } from '../lib/utils'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 const FREQ_LABEL: Record<string, string> = { once: 'One-time', daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly' }
+const CHEERS = ['🎉 Great job!', '⭐ Awesome!', '🙌 Nice work!', '💪 You did it!', '🌟 Superstar!']
 
 export default function Chores() {
   const [chores, setChores] = useState<Chore[]>([])
   const [title, setTitle] = useState('')
+  const [icon, setIcon] = useState('🧹')
   const [person, setPerson] = useState('')
   const [frequency, setFrequency] = useState('weekly')
   const [dayOfWeek, setDayOfWeek] = useState<string>('')
@@ -25,6 +28,7 @@ export default function Chores() {
     try {
       await createChore({
         title: title.trim(),
+        icon,
         assigned_to: person.trim() || undefined,
         frequency,
         day_of_week: frequency === 'weekly' && dayOfWeek !== '' ? Number(dayOfWeek) : undefined,
@@ -37,6 +41,9 @@ export default function Chores() {
     const updated = chore.done_this_period
       ? await uncompleteChore(chore.id)
       : await completeChore(chore.id)
+    if (!chore.done_this_period) {
+      toast(CHEERS[Math.floor(Math.random() * CHEERS.length)], { icon: chore.icon || '✅' })
+    }
     setChores(cs => cs.map(c => c.id === updated.id ? updated : c))
   }
 
@@ -59,6 +66,7 @@ export default function Chores() {
       </div>
 
       <div className="bg-surface-card border border-surface-border rounded-2xl p-4 flex gap-3 flex-wrap">
+        <EmojiPicker value={icon} onChange={setIcon} />
         <input className="flex-1 min-w-40 bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
           placeholder="Chore (e.g. Take out trash)" value={title} onChange={e => setTitle(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && add()} />
@@ -105,31 +113,39 @@ export default function Chores() {
                   {done}/{personChores.length} done
                 </span>
               </div>
-              <div className="space-y-1.5">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {personChores.map(chore => (
-                  <div key={chore.id}
-                    className={cn('flex items-center gap-3 rounded-lg px-3 py-2 group transition-all',
-                      chore.done_this_period ? 'bg-green-500/5' : 'bg-surface')}>
-                    <button onClick={() => toggle(chore)} className="flex-shrink-0">
-                      {chore.done_this_period
-                        ? <CheckCircle2 size={19} className="text-green-400" />
-                        : <Circle size={19} className="text-surface-muted hover:text-accent transition-colors" />}
-                    </button>
-                    <div className="flex-1 min-w-0">
-                      <p className={cn('text-sm', chore.done_this_period ? 'text-surface-muted line-through' : 'text-white')}>
+                  <motion.div key={chore.id} layout className="relative group">
+                    <button onClick={() => toggle(chore)}
+                      title={chore.done_this_period ? 'Tap to undo' : 'Tap when done!'}
+                      className={cn(
+                        'w-full h-full rounded-2xl border-2 px-2 py-4 flex flex-col items-center gap-2 transition-all',
+                        chore.done_this_period
+                          ? 'bg-green-500/15 border-green-400'
+                          : 'bg-surface border-surface-border hover:border-accent hover:scale-[1.03] active:scale-95'
+                      )}>
+                      <motion.span layout className="text-6xl leading-none select-none"
+                        animate={chore.done_this_period ? { rotate: [0, -8, 8, 0], scale: [1, 1.2, 1] } : {}}
+                        transition={{ duration: 0.4 }}>
+                        {chore.done_this_period ? '✅' : (chore.icon || '🧹')}
+                      </motion.span>
+                      <span className={cn('text-sm font-bold text-center leading-tight',
+                        chore.done_this_period ? 'text-green-300/80 line-through' : 'text-white')}>
                         {chore.title}
-                      </p>
-                      <p className="text-surface-muted text-[11px]">
+                      </span>
+                      <span className="text-surface-muted text-[10px] text-center">
                         {FREQ_LABEL[chore.frequency]}
                         {chore.frequency === 'weekly' && chore.day_of_week != null && ` · ${DAYS[chore.day_of_week]}`}
-                        {chore.last_completed_at && ` · last done ${new Date(chore.last_completed_at).toLocaleDateString()}`}
-                      </p>
-                    </div>
+                      </span>
+                      {chore.done_this_period && chore.last_completed_by && (
+                        <span className="text-green-300 text-[11px] font-medium">🌟 {chore.last_completed_by}</span>
+                      )}
+                    </button>
                     <button onClick={() => remove(chore.id)}
-                      className="opacity-0 group-hover:opacity-100 text-surface-muted hover:text-red-400 transition-all flex-shrink-0">
+                      className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-surface-muted hover:text-red-400 transition-all">
                       <Trash2 size={14} />
                     </button>
-                  </div>
+                  </motion.div>
                 ))}
               </div>
             </motion.div>

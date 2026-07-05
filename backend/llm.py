@@ -2,7 +2,8 @@ import json
 import httpx
 from database import settings as env_settings
 
-SYSTEM_PROMPT = """You are a home inventory assistant. Parse the user's message and return a JSON action.
+SYSTEM_PROMPT_TEMPLATE = """You are a home assistant. Parse the user's message and return a JSON action.
+Today is {today} ({weekday}).
 
 Available actions:
 - find_item: user wants to know where something is or if they have it
@@ -12,10 +13,12 @@ Available actions:
 - list_items: user wants to see items in a category or location
 - low_stock: user wants to see what's running low
 - suggest_recipes: user asks what they can cook/make/eat with what they have (e.g. "what can I make tonight?")
-- unknown: cannot determine intent
+- add_event: user wants to put something on the calendar (set "item" to the event title, "datetime" to ISO 8601 resolved from today's date)
+- complete_chore: user says a chore is done (set "item" to the chore name, "person" to who did it if mentioned)
+- unknown: cannot determine intent (questions/chit-chat go here)
 
 Respond ONLY with valid JSON in this format:
-{
+{{
   "action": "find_item",
   "item": "milk",
   "location": null,
@@ -24,21 +27,38 @@ Respond ONLY with valid JSON in this format:
   "quantity": null,
   "unit": null,
   "notes": null,
+  "datetime": null,
+  "person": null,
   "confidence": 0.95
-}
+}}
 
 Examples:
-- "where is my drill?" -> {"action": "find_item", "item": "drill", ...}
-- "added 2 boxes of pasta to pantry shelf 1" -> {"action": "add_item", "item": "pasta", "location": "pantry", "sublocation": "shelf 1", "quantity": 2, "unit": "boxes", ...}
-- "we're out of milk" -> {"action": "update_item", "item": "milk", "quantity": 0, ...}
-- "just bought 2 gallons of milk" -> {"action": "add_item", "item": "milk", "quantity": 2, "unit": "gallons", ...}
-- "moved the drill to the garage" -> {"action": "update_item", "item": "drill", "location": "garage", ...}
-- "throw out the broken toaster" -> {"action": "remove_item", "item": "toaster", ...}
-- "do we have coffee?" -> {"action": "find_item", "item": "coffee", ...}
-- "what's running low?" -> {"action": "low_stock", ...}
-- "what can I make for dinner tonight?" -> {"action": "suggest_recipes", ...}
-- "what should we cook with what we have?" -> {"action": "suggest_recipes", ...}
+- "where is my drill?" -> {{"action": "find_item", "item": "drill", ...}}
+- "added 2 boxes of pasta to pantry shelf 1" -> {{"action": "add_item", "item": "pasta", "location": "pantry", "sublocation": "shelf 1", "quantity": 2, "unit": "boxes", ...}}
+- "we're out of milk" -> {{"action": "update_item", "item": "milk", "quantity": 0, ...}}
+- "just bought 2 gallons of milk" -> {{"action": "add_item", "item": "milk", "quantity": 2, "unit": "gallons", ...}}
+- "moved the drill to the garage" -> {{"action": "update_item", "item": "drill", "location": "garage", ...}}
+- "throw out the broken toaster" -> {{"action": "remove_item", "item": "toaster", ...}}
+- "what's running low?" -> {{"action": "low_stock", ...}}
+- "what can I make for dinner tonight?" -> {{"action": "suggest_recipes", ...}}
+- "add dentist appointment friday at 2pm" -> {{"action": "add_event", "item": "Dentist appointment", "datetime": "{friday}T14:00:00", ...}}
+- "put soccer practice on the calendar for tomorrow 5:30" -> {{"action": "add_event", "item": "Soccer practice", "datetime": "{tomorrow}T17:30:00", ...}}
+- "I took out the trash" -> {{"action": "complete_chore", "item": "trash", ...}}
+- "Emma finished feeding the dog" -> {{"action": "complete_chore", "item": "feeding the dog", "person": "Emma", ...}}
+- "how are you?" / "what's on the calendar this week?" -> {{"action": "unknown", ...}}
 """
+
+
+def get_system_prompt() -> str:
+    from datetime import date, timedelta
+    today = date.today()
+    friday = today + timedelta(days=((4 - today.weekday()) % 7) or 7)
+    return SYSTEM_PROMPT_TEMPLATE.format(
+        today=today.isoformat(),
+        weekday=today.strftime("%A"),
+        friday=friday.isoformat(),
+        tomorrow=(today + timedelta(days=1)).isoformat(),
+    )
 
 
 def _db_setting(db, key: str, fallback: str = "") -> str:
@@ -65,7 +85,7 @@ async def _parse_ollama(user_message: str, host: str, model: str) -> dict:
             json={
                 "model": model,
                 "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "system", "content": get_system_prompt()},
                     {"role": "user", "content": user_message},
                 ],
                 "stream": False,
@@ -88,7 +108,7 @@ async def _parse_openai_compat(user_message: str, api_key: str, model: str, base
     response = await client.chat.completions.create(
         model=model,
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": get_system_prompt()},
             {"role": "user", "content": user_message},
         ],
         max_tokens=256,
@@ -103,7 +123,7 @@ async def _parse_claude(user_message: str, api_key: str, model: str) -> dict:
     response = await client.messages.create(
         model=model,
         max_tokens=256,
-        system=SYSTEM_PROMPT,
+        system=get_system_prompt(),
         messages=[{"role": "user", "content": user_message}],
     )
     return _extract_json(response.content[0].text)
@@ -168,7 +188,10 @@ async def generate_response(prompt: str, context: str = "", db=None) -> str:
             return NO_AI_NOTICE
         messages = []
         if context:
-            messages.append({"role": "system", "content": f"Home inventory context:\n{context}"})
+            messages.append({"role": "system", "content":
+                "You are HomeHub, the family's friendly home assistant. Be warm and concise — replies "
+                "may show in a small chat bubble or Telegram message. Use this live household data to "
+                "answer questions about inventory, the calendar, meals, and chores:\n\n" + context})
         messages.append({"role": "user", "content": prompt})
 
         if provider == "claude":
