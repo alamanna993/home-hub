@@ -239,18 +239,24 @@ export default function Calendar() {
               <input autoFocus className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
                 placeholder="Event title" value={title} onChange={e => setTitle(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && addEvent()} />
-              <div className="flex gap-3 items-center flex-wrap">
-                <div className="flex items-center gap-1.5">
+              <div className="space-y-2.5">
+                <div className="flex items-center gap-2.5">
+                  <span className="text-surface-muted text-xs w-9 flex-shrink-0">Start</span>
                   <TimeSelect value={time} onChange={setTime} use24={use24} emptyLabel="All day" />
-                  <span className="text-surface-muted text-xs">to</span>
+                </div>
+                <div className="flex items-center gap-2.5">
+                  <span className="text-surface-muted text-xs w-9 flex-shrink-0">End</span>
                   <TimeSelect value={endTime} onChange={setEndTime} use24={use24} emptyLabel="+1 hour" disabled={!time} />
                 </div>
-                <div className="flex gap-1.5">
-                  {COLORS.map(c => (
-                    <button key={c} onClick={() => setColor(c)}
-                      className={cn('w-6 h-6 rounded-full transition-all', color === c && 'ring-2 ring-white ring-offset-2 ring-offset-surface-card')}
-                      style={{ background: c }} />
-                  ))}
+                <div className="flex items-center gap-2.5 pt-1">
+                  <span className="text-surface-muted text-xs w-9 flex-shrink-0">Color</span>
+                  <div className="flex gap-1.5">
+                    {COLORS.map(c => (
+                      <button key={c} onClick={() => setColor(c)}
+                        className={cn('w-6 h-6 rounded-full transition-all', color === c && 'ring-2 ring-white ring-offset-2 ring-offset-surface-card')}
+                        style={{ background: c }} />
+                    ))}
+                  </div>
                 </div>
               </div>
               <button onClick={addEvent} disabled={!title.trim()}
