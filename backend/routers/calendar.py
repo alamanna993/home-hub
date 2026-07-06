@@ -18,9 +18,14 @@ logger = logging.getLogger("homehub")
 _ics_cache: dict = {"at": 0.0, "urls": "", "raw": []}
 
 
+def invalidate_ics_cache():
+    _ics_cache.update({"at": 0.0, "urls": "", "raw": []})
+
+
 async def get_external_events(db: Session, start: Optional[datetime], end: Optional[datetime]) -> list[dict]:
     row = db.query(Setting).filter(Setting.key == "ics_urls").first()
     urls = [u.strip() for u in (row.value or "").replace("\n", ",").split(",") if u.strip()] if row else []
+    urls = ["https://" + u[len("webcal://"):] if u.startswith("webcal://") else u for u in urls]
     if not urls:
         return []
 

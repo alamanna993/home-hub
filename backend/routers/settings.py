@@ -73,7 +73,75 @@ def update_setting(
         defn = next(d for d in SETTING_DEFINITIONS if d["key"] == key)
         db.add(Setting(key=key, value=data.value, description=defn["description"]))
     db.commit()
+    if key == "ics_urls":
+        from routers.calendar import invalidate_ics_cache
+        invalidate_ics_cache()
     return {"ok": True, "key": key}
+
+
+# ---- Synced (inbound) calendar feeds, managed as a list ----
+
+def _get_ics_urls(db: Session) -> list[str]:
+    row = db.query(Setting).filter(Setting.key == "ics_urls").first()
+    return [u.strip() for u in (row.value or "").replace("\n", ",").split(",") if u.strip()] if row else []
+
+
+def _save_ics_urls(db: Session, urls: list[str]):
+    value = ",".join(urls)
+    row = db.query(Setting).filter(Setting.key == "ics_urls").first()
+    if row:
+        row.value = value
+    else:
+        db.add(Setting(key="ics_urls", value=value))
+    db.commit()
+    from routers.calendar import invalidate_ics_cache
+    invalidate_ics_cache()
+
+
+class FeedAdd(BaseModel):
+    url: str
+
+
+@router.get("/ics-feeds")
+def list_ics_feeds(db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    return {"feeds": _get_ics_urls(db)}
+
+
+@router.post("/ics-feeds")
+async def add_ics_feed(data: FeedAdd, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    import httpx
+    import icalendar
+    url = data.url.strip()
+    if url.startswith("webcal://"):
+        url = "https://" + url[len("webcal://"):]
+    if not url.startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="That doesn't look like a calendar URL (should start with https:// or webcal://)")
+    urls = _get_ics_urls(db)
+    if url in urls:
+        raise HTTPException(status_code=400, detail="That calendar is already synced")
+    # Validate before saving so a typo can't silently break the calendar
+    try:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            r = await client.get(url)
+            r.raise_for_status()
+        cal = icalendar.Calendar.from_ical(r.content)
+        count = sum(1 for c in cal.walk("VEVENT"))
+        name = str(cal.get("X-WR-CALNAME", "")) or None
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Couldn't read that calendar feed: {e}")
+    urls.append(url)
+    _save_ics_urls(db, urls)
+    return {"ok": True, "feeds": urls, "name": name, "events_found": count}
+
+
+@router.delete("/ics-feeds")
+def remove_ics_feed(url: str, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    urls = _get_ics_urls(db)
+    if url not in urls:
+        raise HTTPException(status_code=404, detail="That calendar isn't in the synced list")
+    urls.remove(url)
+    _save_ics_urls(db, urls)
+    return {"ok": True, "feeds": urls}
 
 
 def require_api_key(x_api_key: Optional[str] = Header(None)):

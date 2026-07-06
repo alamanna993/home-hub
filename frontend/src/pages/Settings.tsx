@@ -59,7 +59,6 @@ const MODEL_KEYS: Record<string, string> = {
 }
 
 const GROUPS = [
-  { label: '📅 Calendar Sync', keys: ['ics_urls'] },
   { label: '✈️ Telegram', keys: ['telegram_bot_token', 'telegram_allowed_chat_ids'] },
   { label: '🤖 Discord', keys: ['discord_token', 'discord_channel_id', 'low_stock_alert_channel'] },
   { label: '🎨 Dashboard', keys: ['site_title'] },
@@ -141,6 +140,76 @@ function cnRole(role: string) {
   return role === 'admin'
     ? 'text-xs px-2 py-0.5 rounded-full bg-accent/15 text-accent'
     : 'text-xs px-2 py-0.5 rounded-full bg-white/5 text-surface-muted'
+}
+
+function shortenUrl(u: string) {
+  try {
+    const p = new URL(u)
+    return p.hostname + '…' + u.slice(-18)
+  } catch { return u.slice(0, 40) + '…' }
+}
+
+function InboundFeedsSection() {
+  const [feeds, setFeeds] = useState<string[]>([])
+  const [newUrl, setNewUrl] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const load = () => axios.get('/api/settings/ics-feeds').then(r => setFeeds(r.data.feeds)).catch(() => {})
+  useEffect(() => { load() }, [])
+
+  async function add() {
+    if (!newUrl.trim()) return
+    setBusy(true)
+    try {
+      const { data } = await axios.post('/api/settings/ics-feeds', { url: newUrl.trim() })
+      toast.success(`Synced${data.name ? ` "${data.name}"` : ''} — ${data.events_found} events found`)
+      setNewUrl('')
+      setFeeds(data.feeds)
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || 'Could not add that calendar')
+    } finally { setBusy(false) }
+  }
+
+  async function remove(url: string) {
+    if (!confirm('Stop showing this synced calendar? (Nothing is deleted on Google/Outlook.)')) return
+    try {
+      const { data } = await axios.delete('/api/settings/ics-feeds', { params: { url } })
+      toast.success('Calendar removed')
+      setFeeds(data.feeds)
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || 'Could not remove it')
+    }
+  }
+
+  return (
+    <div className="space-y-2.5">
+      <p className="text-surface-muted text-xs font-medium">📥 Synced calendars shown on HomeHub (Google/Outlook iCal links)</p>
+      {feeds.length === 0 && <p className="text-surface-muted text-xs">None yet — paste an iCal/ICS link below.</p>}
+      {feeds.map(url => (
+        <div key={url} className="flex items-center gap-2 bg-surface rounded-lg px-3 py-2 group">
+          <span className="text-base flex-shrink-0">📆</span>
+          <code className="flex-1 text-white text-[11px] truncate" title={url}>{shortenUrl(url)}</code>
+          <button onClick={() => remove(url)}
+            className="text-surface-muted hover:text-red-400 transition-all flex-shrink-0 text-xs font-medium">
+            Remove
+          </button>
+        </div>
+      ))}
+      <div className="flex gap-2">
+        <input className="flex-1 bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
+          placeholder="Paste iCal/ICS or webcal:// link…" value={newUrl}
+          onChange={e => setNewUrl(e.target.value)} onKeyDown={e => e.key === 'Enter' && add()} />
+        <button onClick={add} disabled={busy || !newUrl.trim()}
+          className="px-4 py-2 bg-accent hover:bg-accent-hover text-white text-sm font-medium rounded-lg transition-all disabled:opacity-50">
+          {busy ? 'Checking…' : 'Add'}
+        </button>
+      </div>
+      <p className="text-surface-muted text-[10px] leading-relaxed">
+        Google: calendar Settings → "Secret address in iCal format". Outlook: Settings → Shared calendars → Publish.
+        Changes apply to the HomeHub calendar immediately.
+      </p>
+    </div>
+  )
 }
 
 function CalendarFeedSection() {
@@ -393,9 +462,16 @@ export default function Settings() {
               </div>
             )
           })}
-          {group.label.includes('Calendar') && <CalendarFeedSection />}
         </motion.div>
       ))}
+
+      {/* Calendar sync — inbound feeds + outbound subscribe URL */}
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
+        className="bg-surface-card border border-surface-border rounded-2xl p-5 shadow-card space-y-4">
+        <h3 className="text-white font-semibold text-sm">📅 Calendar Sync</h3>
+        <InboundFeedsSection />
+        <CalendarFeedSection />
+      </motion.div>
 
       {/* AI Provider */}
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
