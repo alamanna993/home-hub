@@ -11,6 +11,7 @@ router = APIRouter(prefix="/msgraph", tags=["msgraph"])
 
 class ClientId(BaseModel):
     client_id: str
+    tenant: str = ""
 
 
 @router.get("/status")
@@ -19,6 +20,7 @@ def status(db: Session = Depends(get_db), _: User = Depends(require_admin)):
         "connected": msgraph.is_connected(db),
         "account": msgraph._get(db, "msgraph_account"),
         "client_id_set": bool(msgraph._get(db, "msgraph_client_id")),
+        "tenant": msgraph._get(db, "msgraph_tenant"),
     }
 
 
@@ -28,6 +30,7 @@ def save_client_id(data: ClientId, db: Session = Depends(get_db), _: User = Depe
     if len(cid) < 30 or " " in cid:
         raise HTTPException(status_code=400, detail="That doesn't look like an Application (client) ID")
     msgraph._set(db, "msgraph_client_id", cid)
+    msgraph._set(db, "msgraph_tenant", data.tenant.strip())
     return {"ok": True}
 
 

@@ -7,9 +7,13 @@ from models import Setting
 
 logger = logging.getLogger("homehub")
 
-AUTH_BASE = "https://login.microsoftonline.com/common/oauth2/v2.0"
 GRAPH = "https://graph.microsoft.com/v1.0"
 SCOPES = "Calendars.ReadWrite offline_access User.Read"
+
+
+def _auth_base(db) -> str:
+    tenant = _get(db, "msgraph_tenant") or "common"
+    return f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0"
 
 # In-process state: current device flow + cached access token
 _device_flow: dict = {}
@@ -43,7 +47,7 @@ async def start_device_flow(db) -> dict:
     if not client_id:
         raise ValueError("Save your Microsoft app Client ID first")
     async with httpx.AsyncClient(timeout=15.0) as client:
-        r = await client.post(f"{AUTH_BASE}/devicecode",
+        r = await client.post(f"{_auth_base(db)}/devicecode",
                               data={"client_id": client_id, "scope": SCOPES})
         if r.status_code >= 400:
             try:
@@ -58,6 +62,12 @@ async def start_device_flow(db) -> dict:
             if "700016" in desc:
                 raise ValueError("Microsoft doesn't recognize that Client ID — double-check you copied the "
                                  "'Application (client) ID' from the app's Overview page.")
+            if "50059" in desc:
+                raise ValueError(
+                    "Your app registration is single-tenant. Easiest fix: in the Azure portal open the app → "
+                    "Authentication → Supported account types → choose 'Accounts in any organizational directory "
+                    "and personal Microsoft accounts' → Save. (Alternatively, paste your Directory (tenant) ID "
+                    "into the Tenant field here.)")
             raise ValueError(desc.split("Trace ID")[0].strip() or f"Microsoft sign-in error (HTTP {r.status_code})")
         data = r.json()
     _device_flow.update({
@@ -77,7 +87,7 @@ async def poll_device_flow(db) -> dict:
     if not _device_flow.get("device_code"):
         return {"status": "error", "detail": "No sign-in in progress — click Connect first"}
     async with httpx.AsyncClient(timeout=15.0) as client:
-        r = await client.post(f"{AUTH_BASE}/token", data={
+        r = await client.post(f"{_auth_base(db)}/token", data={
             "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
             "client_id": _device_flow["client_id"],
             "device_code": _device_flow["device_code"],
@@ -119,7 +129,7 @@ async def get_access_token(db) -> Optional[str]:
     if not client_id or not refresh:
         return None
     async with httpx.AsyncClient(timeout=15.0) as client:
-        r = await client.post(f"{AUTH_BASE}/token", data={
+        r = await client.post(f"{_auth_base(db)}/token", data={
             "grant_type": "refresh_token",
             "client_id": client_id,
             "refresh_token": refresh,

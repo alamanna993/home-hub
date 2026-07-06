@@ -152,6 +152,7 @@ function shortenUrl(u: string) {
 function MicrosoftSection() {
   const [status, setStatus] = useState<{ connected: boolean; account: string; client_id_set: boolean } | null>(null)
   const [clientId, setClientId] = useState('')
+  const [tenant, setTenant] = useState('')
   const [code, setCode] = useState<{ user_code: string; verification_uri: string } | null>(null)
   const [busy, setBusy] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
@@ -162,7 +163,7 @@ function MicrosoftSection() {
   async function saveAndConnect() {
     setBusy(true)
     try {
-      await axios.post('/api/msgraph/client-id', { client_id: clientId.trim() })
+      await axios.post('/api/msgraph/client-id', { client_id: clientId.trim(), tenant: tenant.trim() })
       setClientId('')
       await load()
     } catch (e: any) {
@@ -249,6 +250,10 @@ function MicrosoftSection() {
               {busy ? 'Starting…' : 'Save & Connect'}
             </button>
           </div>
+          <input className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
+            placeholder="Directory (tenant) ID — only if your app is single-tenant (optional)"
+            value={tenant} onChange={e => setTenant(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && clientId.trim() && saveAndConnect()} />
           <button onClick={() => setShowHelp(v => !v)} className="text-accent text-xs underline">
             {showHelp ? 'Hide setup steps' : 'How do I get a client ID? (one-time, ~5 min)'}
           </button>
