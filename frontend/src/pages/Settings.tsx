@@ -159,13 +159,19 @@ function MicrosoftSection() {
   const load = () => axios.get('/api/msgraph/status').then(r => setStatus(r.data)).catch(() => {})
   useEffect(() => { load() }, [])
 
-  async function saveClientId() {
+  async function saveAndConnect() {
+    setBusy(true)
     try {
       await axios.post('/api/msgraph/client-id', { client_id: clientId.trim() })
-      toast.success('Client ID saved')
       setClientId('')
-      load()
-    } catch (e: any) { toast.error(e?.response?.data?.detail || 'Invalid client ID') }
+      await load()
+    } catch (e: any) {
+      setBusy(false)
+      toast.error(e?.response?.data?.detail || 'Invalid client ID')
+      return
+    }
+    setBusy(false)
+    connect()
   }
 
   async function connect() {
@@ -221,19 +227,26 @@ function MicrosoftSection() {
           <p className="text-surface-muted text-xs">Waiting for you to finish signing in…</p>
         </div>
       ) : status.client_id_set ? (
-        <button onClick={connect} disabled={busy}
-          className="w-full py-2.5 bg-accent hover:bg-accent-hover text-white text-sm font-medium rounded-lg transition-all disabled:opacity-50">
-          {busy ? 'Starting…' : 'Connect Microsoft Account'}
-        </button>
+        <>
+          <button onClick={connect} disabled={busy}
+            className="w-full py-2.5 bg-accent hover:bg-accent-hover text-white text-sm font-medium rounded-lg transition-all disabled:opacity-50">
+            {busy ? 'Starting…' : 'Connect Microsoft Account'}
+          </button>
+          <button onClick={() => setStatus(s => s ? { ...s, client_id_set: false } : s)}
+            className="text-surface-muted hover:text-white text-xs underline">
+            change client ID
+          </button>
+        </>
       ) : (
         <>
           <div className="flex gap-2">
             <input className="flex-1 bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
               placeholder="Application (client) ID from your Azure app registration"
-              value={clientId} onChange={e => setClientId(e.target.value)} />
-            <button onClick={saveClientId} disabled={!clientId.trim()}
-              className="px-4 py-2 bg-accent hover:bg-accent-hover text-white text-sm font-medium rounded-lg transition-all disabled:opacity-50">
-              Save
+              value={clientId} onChange={e => setClientId(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && clientId.trim() && saveAndConnect()} />
+            <button onClick={saveAndConnect} disabled={!clientId.trim() || busy}
+              className="px-4 py-2 bg-accent hover:bg-accent-hover text-white text-sm font-medium rounded-lg transition-all disabled:opacity-50 whitespace-nowrap">
+              {busy ? 'Starting…' : 'Save & Connect'}
             </button>
           </div>
           <button onClick={() => setShowHelp(v => !v)} className="text-accent text-xs underline">
