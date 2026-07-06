@@ -16,7 +16,7 @@ interface Props {
 
 export default function ItemModal({ item, categories, locations, onClose, onSaved }: Props) {
   const [form, setForm] = useState({
-    name: '', quantity: '', unit: '', notes: '', author: '',
+    name: '', quantity: '', unit: '', notes: '', author: '', expiration_date: '',
     track_stock: false, low_stock_threshold: '', location_id: '', category_id: '',
   })
   const [newLoc, setNewLoc] = useState({ name: '', sublocation: '' })
@@ -28,6 +28,7 @@ export default function ItemModal({ item, categories, locations, onClose, onSave
       setForm({
         name: item.name, quantity: String(item.quantity ?? ''),
         unit: item.unit ?? '', notes: item.notes ?? '', author: item.author ?? '',
+        expiration_date: item.expiration_date ?? '',
         track_stock: Boolean(item.track_stock),
         low_stock_threshold: String(item.low_stock_threshold ?? ''),
         location_id: String(item.location?.id ?? ''),
@@ -48,6 +49,10 @@ export default function ItemModal({ item, categories, locations, onClose, onSave
     : locations.find(l => String(l.id) === form.location_id)?.name || ''
   const isGrocery = /grocer|food|produce|cleaning|laundry/i.test(selectedCatName) || /laundry/i.test(selectedLocName)
   const tracking = isGrocery || form.track_stock
+  // Expiration only makes sense for edibles — food-ish category or kitchen-ish location
+  const isFood = /grocer|food|produce|spice|baking|snack|beverage|drink/i.test(selectedCatName)
+    || /kitchen|pantry|fridge|freezer/i.test(selectedLocName)
+  const showExpiration = isFood || Boolean(form.expiration_date)
 
   async function save() {
     if (!form.name.trim()) return toast.error('Name is required')
@@ -75,6 +80,7 @@ export default function ItemModal({ item, categories, locations, onClose, onSave
         low_stock_threshold: tracking && form.low_stock_threshold ? parseFloat(form.low_stock_threshold) : undefined,
         location_id: locationId ? parseInt(locationId) : undefined,
         category_id: categoryId ? parseInt(categoryId) : undefined,
+        expiration_date: form.expiration_date || null,  // explicit null clears a saved date
       }
       if (item) await updateItem(item.id, payload)
       else await createItem(payload)
@@ -182,6 +188,14 @@ export default function ItemModal({ item, categories, locations, onClose, onSave
                   onChange={e => setNewCat(e.target.value)} />
               )}
             </div>
+            {showExpiration && (
+              <div>
+                <label className="text-xs text-surface-muted mb-1 block">Expiration date</label>
+                <input type="date" className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent [color-scheme:dark]"
+                  value={form.expiration_date} onChange={e => set('expiration_date', e.target.value)} />
+                <p className="text-[10px] text-surface-muted mt-1">Optional — leave blank if it doesn't expire</p>
+              </div>
+            )}
             {showAuthor && (
               <div>
                 <label className="text-xs text-surface-muted mb-1 block">Author / Artist</label>
@@ -195,6 +209,11 @@ export default function ItemModal({ item, categories, locations, onClose, onSave
               <textarea className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent resize-none"
                 rows={2} value={form.notes} onChange={e => set('notes', e.target.value)} placeholder="Optional notes..." />
             </div>
+            {item && (
+              <p className="text-[11px] text-surface-muted">
+                Entered {new Date(item.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
+              </p>
+            )}
           </div>
 
           <div className="flex gap-3 mt-5">

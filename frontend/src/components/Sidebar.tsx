@@ -8,7 +8,7 @@ const links = [
   { to: '/inventory', icon: Package, label: 'Inventory' },
   { to: '/locations', icon: MapPin, label: 'Locations' },
   { to: '/categories', icon: Tag, label: 'Categories' },
-  { to: '/alerts', icon: AlertTriangle, label: 'Low Stock' },
+  { to: '/alerts', icon: AlertTriangle, label: 'Alerts' },
   { to: '/calendar', icon: CalendarDays, label: 'Calendar' },
   { to: '/meals', icon: UtensilsCrossed, label: 'Meals' },
   { to: '/chores', icon: ClipboardList, label: 'Chores' },

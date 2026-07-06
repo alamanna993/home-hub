@@ -43,6 +43,7 @@ class Item(Base):
     category_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
     image_url = Column(String(500), nullable=True)
     notes = Column(Text, nullable=True)
+    expiration_date = Column(Date, nullable=True)       # for food — created_at is the entry date
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

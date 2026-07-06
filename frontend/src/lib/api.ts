@@ -34,6 +34,7 @@ export interface Item {
   location?: { id: number; name: string; sublocation?: string }
   category?: { id: number; name: string; icon?: string; color?: string }
   notes?: string; is_low_stock: boolean
+  expiration_date?: string | null; is_expired?: boolean; expires_soon?: boolean
   created_at: string; updated_at?: string
 }
 export interface Stats {

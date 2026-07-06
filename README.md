@@ -2,8 +2,9 @@
 
 Self-hosted family hub: home inventory, AI chat (local or cloud), meal planning, calendar, chore charts, and a Telegram bot — all in Docker, NAS-friendly.
 
-- 📦 **Inventory** — every book, cable, and can of beans, organized by room and sub-location; browse by tappable room tiles, smart low-stock tracking (groceries/laundry auto-track, everything else opt-in)
-- 💬 **AI Chat** — talks naturally, answers about the calendar/chores/inventory, and *updates the database*: "just bought 2 gallons of milk", "I took out the trash", "add karate tuesday 5:30pm" — from the web app or Telegram
+- 📦 **Inventory** — every book, cable, and can of beans, organized by room and sub-location; browse by tappable room tiles, smart low-stock tracking (groceries/laundry auto-track, everything else opt-in); every item records the date it entered the system
+- ⏳ **Food expiration dates** — food items take an optional expiration date (the field appears automatically for food categories and kitchen locations); expired and expiring-soon items are flagged on their cards, listed on the Alerts page, and the AI knows about them when suggesting recipes
+- 💬 **AI Chat** — talks naturally, answers about the calendar/chores/inventory, and *updates the database*: "just bought 2 gallons of milk", "added chicken to the fridge, use by friday", "I took out the trash", "add karate tuesday 5:30pm" — from the web app or Telegram
 - 📅 **Calendar** — month view with chores overlaid, quarter-hour event picking, 12h/24h toggle, and **true two-way Microsoft 365/Outlook sync** ([setup guide](docs/microsoft-sync.md)) plus iCal/ICS feeds in both directions for Google
 - 🍽️ **Meal Planner** — plan the week; one tap asks the AI "what can I make tonight?" from what's actually in the kitchen
 - ✅ **Chore Chart** — big kid-friendly emoji tiles per family member, cheers on completion, daily/weekly/monthly resets
@@ -129,7 +130,7 @@ calendar, meals, and chores all work without a model, and basic chat lookups lik
 - **Inventory** — browse, search, filter, add/edit/delete items
 - **Locations** — rooms and sub-locations (Kitchen / Pantry, Basement / Storage Closet…)
 - **Categories** — categories with icons and colors
-- **Low Stock** — items that need restocking
+- **Alerts** — food expiring soon (or already expired) and items that need restocking
 - **Calendar** — month view of family events
 - **Meals** — weekly meal planner, with a one-click "What can I make tonight?" AI shortcut
 - **Chores** — chore chart grouped by person, check off as done (resets daily/weekly/monthly)

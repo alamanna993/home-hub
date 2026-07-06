@@ -52,6 +52,12 @@ export default function Inventory() {
       : 'bg-surface-card border-surface-border text-surface-muted hover:text-white hover:border-surface-muted'
   )
 
+  // Date-only strings ("2026-07-10") must not go through new Date() — UTC parsing can shift them a day
+  const fmtDay = (iso: string) => {
+    const [y, m, d] = iso.slice(0, 10).split('-').map(Number)
+    return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+  }
+
   async function handleDelete(item: Item) {
     if (!confirm(`Delete "${item.name}"?`)) return
     await deleteItem(item.id)
@@ -121,12 +127,14 @@ export default function Inventory() {
                 initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.03 }}
                 className={`bg-surface-card border rounded-2xl p-4 shadow-card group relative ${
-                  item.is_low_stock ? 'border-orange-500/40' : 'border-surface-border'
+                  item.is_expired ? 'border-red-500/40'
+                    : item.is_low_stock || item.expires_soon ? 'border-orange-500/40'
+                    : 'border-surface-border'
                 }`}
               >
-                {item.is_low_stock && (
+                {(item.is_low_stock || item.is_expired || item.expires_soon) && (
                   <div className="absolute top-3 right-3">
-                    <AlertTriangle size={14} className="text-orange-400" />
+                    <AlertTriangle size={14} className={item.is_expired ? 'text-red-400' : 'text-orange-400'} />
                   </div>
                 )}
                 <div className="flex items-start gap-3 mb-3">
@@ -152,6 +160,12 @@ export default function Inventory() {
                       <span className="ml-1 text-surface-muted">(alert ≤{item.low_stock_threshold})</span>
                     )}
                   </p>
+                  {item.expiration_date && (
+                    <p className={item.is_expired ? 'text-red-400 font-medium' : item.expires_soon ? 'text-orange-400 font-medium' : ''}>
+                      ⏳ {item.is_expired ? 'Expired' : 'Expires'} {fmtDay(item.expiration_date)}
+                    </p>
+                  )}
+                  <p>📅 Entered {fmtDay(item.created_at)}</p>
                   {item.notes && <p className="text-surface-muted truncate">💬 {item.notes}</p>}
                 </div>
                 <div className="flex gap-2 mt-3 opacity-0 group-hover:opacity-100 transition-opacity">

@@ -91,7 +91,10 @@ def item_line(item: Item) -> str:
         loc = item.location.name
         if item.location.sublocation:
             loc += f" / {item.location.sublocation}"
-    return f"- {item.name} ({qty})" + (f" — in {loc}" if loc else "")
+    line = f"- {item.name} ({qty})" + (f" — in {loc}" if loc else "")
+    if item.expiration_date:
+        line += f" — expires {item.expiration_date.isoformat()}"
+    return line
 
 
 def find_or_create_location(name: str, sublocation: str | None, db: Session) -> int | None:
@@ -190,9 +193,16 @@ async def chat(req: ChatRequest, db: Session = Depends(get_db)):
         return {"reply": reply, "action": action, "parsed": parsed}
 
     elif action == "add_item" and item_name:
+        from datetime import date
         from routers.items import ItemCreate, create_item
         loc_id = find_or_create_location(parsed.get("location"), parsed.get("sublocation"), db)
         cat_id = find_or_create_category(parsed.get("category"), db)
+        expires = None
+        if parsed.get("expires"):
+            try:
+                expires = date.fromisoformat(str(parsed["expires"])[:10])
+            except ValueError:
+                pass  # model produced a non-ISO date — skip rather than fail the add
         data = ItemCreate(
             name=item_name.title(),
             quantity=parsed.get("quantity", 1),
@@ -200,9 +210,12 @@ async def chat(req: ChatRequest, db: Session = Depends(get_db)):
             location_id=loc_id,
             category_id=cat_id,
             notes=parsed.get("notes"),
+            expiration_date=expires,
         )
         result = create_item(data, source=req.source, db=db)
         reply = f"✅ Added **{result['name']}** (qty: {result['quantity'] or 1}) to {result['location']['name'] if result.get('location') else 'inventory'}."
+        if expires:
+            reply += f" Expires {expires.strftime('%b %d')}."
         return {"reply": reply, "action": action, "item": result}
 
     elif action == "update_item" and item_name:

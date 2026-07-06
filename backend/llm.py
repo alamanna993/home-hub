@@ -27,16 +27,20 @@ Respond ONLY with valid JSON in this format:
   "quantity": null,
   "unit": null,
   "notes": null,
+  "expires": null,
   "datetime": null,
   "person": null,
   "confidence": 0.95
 }}
+
+For food items with a mentioned expiration/use-by date, set "expires" to the ISO date (YYYY-MM-DD) resolved from today's date.
 
 Examples:
 - "where is my drill?" -> {{"action": "find_item", "item": "drill", ...}}
 - "added 2 boxes of pasta to pantry shelf 1" -> {{"action": "add_item", "item": "pasta", "location": "pantry", "sublocation": "shelf 1", "quantity": 2, "unit": "boxes", ...}}
 - "we're out of milk" -> {{"action": "update_item", "item": "milk", "quantity": 0, ...}}
 - "just bought 2 gallons of milk" -> {{"action": "add_item", "item": "milk", "quantity": 2, "unit": "gallons", ...}}
+- "added chicken to the fridge, use by friday" -> {{"action": "add_item", "item": "chicken", "location": "fridge", "expires": "{friday}", ...}}
 - "moved the drill to the garage" -> {{"action": "update_item", "item": "drill", "location": "garage", ...}}
 - "throw out the broken toaster" -> {{"action": "remove_item", "item": "toaster", ...}}
 - "what's running low?" -> {{"action": "low_stock", ...}}
@@ -138,7 +142,7 @@ def _keyword_parse(message: str) -> dict:
     import re
     text = message.lower().strip().rstrip("?.!")
     base = {"action": "unknown", "item": None, "location": None, "sublocation": None,
-            "category": None, "quantity": None, "unit": None, "notes": None, "confidence": 0.3}
+            "category": None, "quantity": None, "unit": None, "notes": None, "expires": None, "confidence": 0.3}
 
     if re.search(r"\b(low|running out|restock|out of stock)\b", text):
         return {**base, "action": "low_stock"}

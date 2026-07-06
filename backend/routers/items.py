@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, date, timedelta
 from pydantic import BaseModel
 from database import get_db
 from models import Item, Location, Category, AuditLog
@@ -55,6 +55,7 @@ class ItemCreate(BaseModel):
     location_id: Optional[int] = None
     category_id: Optional[int] = None
     notes: Optional[str] = None
+    expiration_date: Optional[date] = None
 
 
 class ItemUpdate(BaseModel):
@@ -68,6 +69,20 @@ class ItemUpdate(BaseModel):
     location_id: Optional[int] = None
     category_id: Optional[int] = None
     notes: Optional[str] = None
+    expiration_date: Optional[date] = None
+
+
+EXPIRING_SOON_DAYS = 3
+
+
+def is_expired(item: Item) -> bool:
+    return item.expiration_date is not None and item.expiration_date < date.today()
+
+
+def expires_soon(item: Item) -> bool:
+    if item.expiration_date is None or is_expired(item):
+        return False
+    return item.expiration_date <= date.today() + timedelta(days=EXPIRING_SOON_DAYS)
 
 
 def item_to_dict(item: Item) -> dict:
@@ -83,9 +98,12 @@ def item_to_dict(item: Item) -> dict:
         "location": {"id": item.location.id, "name": item.location.name, "sublocation": item.location.sublocation} if item.location else None,
         "category": {"id": item.category.id, "name": item.category.name, "icon": item.category.icon, "color": item.category.color} if item.category else None,
         "notes": item.notes,
+        "expiration_date": item.expiration_date.isoformat() if item.expiration_date else None,
         "created_at": item.created_at.isoformat(),
         "updated_at": item.updated_at.isoformat() if item.updated_at else None,
         "is_low_stock": is_low(item),
+        "is_expired": is_expired(item),
+        "expires_soon": expires_soon(item),
     }
 
 
@@ -96,6 +114,7 @@ def list_items(
     location_id: Optional[int] = None,
     location_name: Optional[str] = None,   # matches all sub-locations of a room
     low_stock_only: bool = False,
+    expiring_only: bool = False,           # expired or expiring within EXPIRING_SOON_DAYS
     db: Session = Depends(get_db),
 ):
     query = db.query(Item)
@@ -110,6 +129,9 @@ def list_items(
     items = query.order_by(Item.name).all()
     if low_stock_only:
         items = [i for i in items if is_low(i)]
+    if expiring_only:
+        items = [i for i in items if is_expired(i) or expires_soon(i)]
+        items.sort(key=lambda i: i.expiration_date)
     return [item_to_dict(i) for i in items]
 
 
@@ -161,8 +183,12 @@ def update_item(item_id: int, data: ItemUpdate, source: str = "dashboard", db: S
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
     changes = []
-    for field, value in data.model_dump(exclude_none=True).items():
+    for field, value in data.model_dump(exclude_unset=True).items():
+        if value is None and field != "expiration_date":  # only the date is clearable via explicit null
+            continue
         old = getattr(item, field)
+        if old == value:
+            continue
         setattr(item, field, value)
         changes.append(f"{field}: {old} → {value}")
     item.updated_at = datetime.utcnow()
