@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronLeft, ChevronRight, Plus, Trash2, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, RefreshCw, Trash2, X } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { getEvents, createEvent, deleteEvent, getChores, CalendarEvent, Chore } from '../lib/api'
+import api, { getEvents, createEvent, deleteEvent, getChores, CalendarEvent, Chore } from '../lib/api'
 import { cn } from '../lib/utils'
 
 const COLORS = ['#6366f1', '#22c55e', '#f59e0b', '#ec4899', '#06b6d4', '#ef4444']
@@ -18,6 +18,18 @@ export default function Calendar() {
   const [title, setTitle] = useState('')
   const [time, setTime] = useState('')
   const [color, setColor] = useState(COLORS[0])
+  const [syncing, setSyncing] = useState(false)
+
+  async function resync() {
+    setSyncing(true)
+    try {
+      await api.post('/calendar/resync')
+      load()
+      toast.success('Synced calendars refreshed — note Outlook/Google republish their feeds on their own schedule (can lag 30–60 min)')
+    } catch {
+      toast.error('Could not refresh')
+    } finally { setSyncing(false) }
+  }
 
   const monthStart = useMemo(() => new Date(cursor.getFullYear(), cursor.getMonth(), 1), [cursor])
   const gridStart = useMemo(() => {
@@ -101,6 +113,10 @@ export default function Calendar() {
           <p className="text-surface-muted text-sm mt-1">Family events and appointments</p>
         </div>
         <div className="flex items-center gap-2">
+          <button onClick={resync} disabled={syncing} title="Re-fetch synced Google/Outlook calendars now"
+            className="p-2 rounded-lg bg-surface-card border border-surface-border text-surface-muted hover:text-white transition-all disabled:opacity-50">
+            <RefreshCw size={16} className={syncing ? 'animate-spin' : ''} />
+          </button>
           <button onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))}
             className="p-2 rounded-lg bg-surface-card border border-surface-border text-surface-muted hover:text-white transition-all">
             <ChevronLeft size={16} />

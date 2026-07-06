@@ -172,6 +172,13 @@ def calendar_feed(token: str, db: Session = Depends(get_db)):
                     headers={"Content-Disposition": "attachment; filename=homehub.ics"})
 
 
+@router.post("/resync")
+def resync_feeds():
+    """Drop the ICS cache so the next calendar load re-fetches all synced feeds."""
+    invalidate_ics_cache()
+    return {"ok": True}
+
+
 @router.post("/", status_code=201)
 def create_event(data: EventCreate, source: str = "dashboard", db: Session = Depends(get_db)):
     event = CalendarEvent(**data.model_dump(), created_by=source)
