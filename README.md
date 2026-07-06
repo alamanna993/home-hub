@@ -2,13 +2,15 @@
 
 Self-hosted family hub: home inventory, AI chat (local or cloud), meal planning, calendar, chore charts, and a Telegram bot — all in Docker, NAS-friendly.
 
-- 📦 **Inventory** — every book, cable, and can of beans, organized by room and sub-location (Kitchen / Pantry Shelf 2, Basement, Office…)
-- 💬 **AI Chat** — ask "where's my drill?" or "what can I make for dinner tonight?" from the web app or Telegram
-- 🍽️ **Meal Planner** — plan the week's breakfasts, lunches, and dinners
-- 📅 **Calendar** — family events on a month view
-- ✅ **Chore Chart** — chores by person with daily/weekly/monthly check-offs
-- 🤖 **Pluggable AI** — Ollama or LM Studio (local), OpenAI or Claude (cloud); switch providers from the Settings page without restarting
-- 💾 **Redundant data** — Postgres data on a folder you choose (NAS share) plus automatic nightly SQL backups with retention
+- 📦 **Inventory** — every book, cable, and can of beans, organized by room and sub-location; browse by tappable room tiles, smart low-stock tracking (groceries/laundry auto-track, everything else opt-in)
+- 💬 **AI Chat** — talks naturally, answers about the calendar/chores/inventory, and *updates the database*: "just bought 2 gallons of milk", "I took out the trash", "add karate tuesday 5:30pm" — from the web app or Telegram
+- 📅 **Calendar** — month view with chores overlaid, quarter-hour event picking, 12h/24h toggle, and **true two-way Microsoft 365/Outlook sync** ([setup guide](docs/microsoft-sync.md)) plus iCal/ICS feeds in both directions for Google
+- 🍽️ **Meal Planner** — plan the week; one tap asks the AI "what can I make tonight?" from what's actually in the kitchen
+- ✅ **Chore Chart** — big kid-friendly emoji tiles per family member, cheers on completion, daily/weekly/monthly resets
+- 👨‍👩‍👧‍👦 **Family & logins** — family member profiles with emoji avatars; admin and member accounts (members get everything except Settings — ideal for kids' tablets)
+- 🤖 **Pluggable AI** — Ollama or LM Studio (local), OpenAI or Claude (cloud); model dropdowns list what's actually installed; switch in Settings with a live test button, or run with no AI at all
+- 💾 **Redundant data** — pick the database/backup folders in the setup wizard (NAS-friendly, with a path tester) plus automatic nightly SQL backups with retention
+- 🧙 **Setup wizard** — first login is admin/admin; the wizard walks through password, storage, AI, and bots in the browser
 
 ## Quick Install (one line)
 
@@ -95,6 +97,15 @@ to confirm the model responds before relying on it.
 **No AI yet? No problem.** Pick "No AI yet" in the wizard (or "None" in Settings) — inventory,
 calendar, meals, and chores all work without a model, and basic chat lookups like
 `where is my drill` still work via keyword matching.
+
+## Calendar Sync (Outlook & Google)
+
+- **Microsoft 365 / Outlook — two-way**: events flow both directions instantly via
+  Microsoft Graph. Full setup + troubleshooting: **[docs/microsoft-sync.md](docs/microsoft-sync.md)**
+- **Google (or any iCal)** — inbound: paste ICS links in Settings → Calendar Sync (listed
+  with per-calendar Remove buttons). Outbound: subscribe Google/Outlook to HomeHub's
+  token-protected feed URL shown in the same section.
+- The calendar's 🔄 button forces an immediate re-sync of everything.
 
 ## Telegram Bot
 
