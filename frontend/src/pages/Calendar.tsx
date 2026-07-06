@@ -17,6 +17,7 @@ export default function Calendar() {
   const [selectedDay, setSelectedDay] = useState<string | null>(null)
   const [title, setTitle] = useState('')
   const [time, setTime] = useState('')
+  const [endTime, setEndTime] = useState('')
   const [color, setColor] = useState(COLORS[0])
   const [syncing, setSyncing] = useState(false)
 
@@ -89,10 +90,15 @@ export default function Calendar() {
 
   async function addEvent() {
     if (!selectedDay || !title.trim()) return
+    if (time && endTime && endTime <= time) {
+      toast.error('End time must be after the start time')
+      return
+    }
     const start = time ? `${selectedDay}T${time}:00` : `${selectedDay}T00:00:00`
-    await createEvent({ title: title.trim(), start, all_day: !time, color })
+    const end = time && endTime ? `${selectedDay}T${endTime}:00` : undefined
+    await createEvent({ title: title.trim(), start, end, all_day: !time, color })
     toast.success('Event added')
-    setTitle(''); setTime(''); setSelectedDay(null)
+    setTitle(''); setTime(''); setEndTime(''); setSelectedDay(null)
     load()
   }
 
@@ -195,7 +201,11 @@ export default function Calendar() {
                     <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: e.color || '#6366f1' }} />
                     <span className={cn('text-white text-sm flex-1 truncate', e.read_only && 'italic')}>{e.title}</span>
                     {e.read_only && <span className="text-surface-muted text-[10px]">synced</span>}
-                    {!e.all_day && <span className="text-surface-muted text-xs">{e.start.slice(11, 16)}</span>}
+                    {!e.all_day && (
+                      <span className="text-surface-muted text-xs">
+                        {e.start.slice(11, 16)}{e.end ? `–${e.end.slice(11, 16)}` : ''}
+                      </span>
+                    )}
                     {!e.read_only && (
                       <button onClick={() => remove(e.id)} className="text-surface-muted hover:text-red-400"><Trash2 size={14} /></button>
                     )}
@@ -217,9 +227,15 @@ export default function Calendar() {
               <input autoFocus className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
                 placeholder="Event title" value={title} onChange={e => setTitle(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && addEvent()} />
-              <div className="flex gap-3 items-center">
-                <input type="time" className="bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
-                  value={time} onChange={e => setTime(e.target.value)} />
+              <div className="flex gap-3 items-center flex-wrap">
+                <div className="flex items-center gap-1.5">
+                  <input type="time" className="bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
+                    value={time} onChange={e => setTime(e.target.value)} />
+                  <span className="text-surface-muted text-xs">to</span>
+                  <input type="time" className="bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent disabled:opacity-40"
+                    value={endTime} onChange={e => setEndTime(e.target.value)} disabled={!time}
+                    title={time ? 'End time (optional — defaults to 1 hour)' : 'Set a start time first'} />
+                </div>
                 <div className="flex gap-1.5">
                   {COLORS.map(c => (
                     <button key={c} onClick={() => setColor(c)}
