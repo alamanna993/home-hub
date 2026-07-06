@@ -262,8 +262,10 @@ function MicrosoftSection() {
               <li>Go to <span className="text-white font-mono">portal.azure.com</span> → Microsoft Entra ID → App registrations → <span className="text-white">New registration</span></li>
               <li>Name: <span className="text-white">HomeHub</span>. Supported account types: <span className="text-white">"Accounts in any organizational directory and personal Microsoft accounts"</span>. No redirect URI needed. Register.</li>
               <li>On the app's Overview page, copy the <span className="text-white">Application (client) ID</span> and paste it above.</li>
-              <li>Go to <span className="text-white">Authentication</span> → scroll to "Advanced settings" → set <span className="text-white">Allow public client flows</span> to <span className="text-white">Yes</span> → Save.</li>
-              <li>Come back here and hit <span className="text-white">Connect Microsoft Account</span>.</li>
+              <li><span className="text-white">Authentication</span> → Advanced settings → <span className="text-white">Allow public client flows = Yes</span> → Save.</li>
+              <li><span className="text-white">API permissions</span> → Add a permission → Microsoft Graph → <span className="text-white">Delegated</span> (not Application!) → add <span className="text-white font-mono">Calendars.ReadWrite</span> and <span className="text-white font-mono">offline_access</span> → then click <span className="text-white">Grant admin consent</span>.</li>
+              <li>No client secret is needed — the device sign-in doesn't use one.</li>
+              <li>Come back here and hit <span className="text-white">Save &amp; Connect</span>.</li>
             </ol>
           )}
         </>
