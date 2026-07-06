@@ -149,6 +149,111 @@ function shortenUrl(u: string) {
   } catch { return u.slice(0, 40) + '…' }
 }
 
+function MicrosoftSection() {
+  const [status, setStatus] = useState<{ connected: boolean; account: string; client_id_set: boolean } | null>(null)
+  const [clientId, setClientId] = useState('')
+  const [code, setCode] = useState<{ user_code: string; verification_uri: string } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [showHelp, setShowHelp] = useState(false)
+
+  const load = () => axios.get('/api/msgraph/status').then(r => setStatus(r.data)).catch(() => {})
+  useEffect(() => { load() }, [])
+
+  async function saveClientId() {
+    try {
+      await axios.post('/api/msgraph/client-id', { client_id: clientId.trim() })
+      toast.success('Client ID saved')
+      setClientId('')
+      load()
+    } catch (e: any) { toast.error(e?.response?.data?.detail || 'Invalid client ID') }
+  }
+
+  async function connect() {
+    setBusy(true)
+    try {
+      const { data } = await axios.post('/api/msgraph/device-code')
+      setCode(data)
+      const timer = setInterval(async () => {
+        try {
+          const r = await axios.post('/api/msgraph/poll')
+          if (r.data.status === 'success') {
+            clearInterval(timer)
+            setCode(null); setBusy(false)
+            toast.success(`Connected as ${r.data.account} — calendar syncing!`)
+            load()
+          } else if (r.data.status === 'error') {
+            clearInterval(timer)
+            setCode(null); setBusy(false)
+            toast.error(r.data.detail || 'Sign-in failed')
+          }
+        } catch { /* keep polling */ }
+      }, 5000)
+    } catch (e: any) {
+      setBusy(false)
+      toast.error(e?.response?.data?.detail || 'Could not start sign-in')
+    }
+  }
+
+  async function disconnect() {
+    if (!confirm('Disconnect the Microsoft account? Synced Outlook events stay on the calendar but stop updating.')) return
+    await axios.post('/api/msgraph/disconnect')
+    toast.success('Disconnected')
+    load()
+  }
+
+  if (!status) return null
+
+  return (
+    <div className="space-y-2.5 border border-surface-border rounded-xl p-3">
+      <p className="text-surface-muted text-xs font-medium">Ⓜ️ Microsoft 365 / Outlook — true two-way sync</p>
+
+      {status.connected ? (
+        <div className="flex items-center gap-2 bg-green-500/10 rounded-lg px-3 py-2.5">
+          <span className="text-green-400 text-sm flex-1">✓ Connected as <span className="font-medium">{status.account || 'Microsoft account'}</span> — events sync both ways instantly.</span>
+          <button onClick={disconnect} className="text-surface-muted hover:text-red-400 text-xs font-medium transition-all">Disconnect</button>
+        </div>
+      ) : code ? (
+        <div className="bg-surface rounded-lg px-4 py-4 text-center space-y-2">
+          <p className="text-white text-sm">On any device, go to</p>
+          <a href={code.verification_uri} target="_blank" rel="noreferrer" className="text-accent underline text-sm font-medium">{code.verification_uri}</a>
+          <p className="text-white text-sm">and enter this code:</p>
+          <p className="text-3xl font-mono font-bold text-accent tracking-[0.3em]">{code.user_code}</p>
+          <p className="text-surface-muted text-xs">Waiting for you to finish signing in…</p>
+        </div>
+      ) : status.client_id_set ? (
+        <button onClick={connect} disabled={busy}
+          className="w-full py-2.5 bg-accent hover:bg-accent-hover text-white text-sm font-medium rounded-lg transition-all disabled:opacity-50">
+          {busy ? 'Starting…' : 'Connect Microsoft Account'}
+        </button>
+      ) : (
+        <>
+          <div className="flex gap-2">
+            <input className="flex-1 bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
+              placeholder="Application (client) ID from your Azure app registration"
+              value={clientId} onChange={e => setClientId(e.target.value)} />
+            <button onClick={saveClientId} disabled={!clientId.trim()}
+              className="px-4 py-2 bg-accent hover:bg-accent-hover text-white text-sm font-medium rounded-lg transition-all disabled:opacity-50">
+              Save
+            </button>
+          </div>
+          <button onClick={() => setShowHelp(v => !v)} className="text-accent text-xs underline">
+            {showHelp ? 'Hide setup steps' : 'How do I get a client ID? (one-time, ~5 min)'}
+          </button>
+          {showHelp && (
+            <ol className="text-surface-muted text-xs leading-relaxed list-decimal ml-4 space-y-1">
+              <li>Go to <span className="text-white font-mono">portal.azure.com</span> → Microsoft Entra ID → App registrations → <span className="text-white">New registration</span></li>
+              <li>Name: <span className="text-white">HomeHub</span>. Supported account types: <span className="text-white">"Accounts in any organizational directory and personal Microsoft accounts"</span>. No redirect URI needed. Register.</li>
+              <li>On the app's Overview page, copy the <span className="text-white">Application (client) ID</span> and paste it above.</li>
+              <li>Go to <span className="text-white">Authentication</span> → scroll to "Advanced settings" → set <span className="text-white">Allow public client flows</span> to <span className="text-white">Yes</span> → Save.</li>
+              <li>Come back here and hit <span className="text-white">Connect Microsoft Account</span>.</li>
+            </ol>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
 function InboundFeedsSection() {
   const [feeds, setFeeds] = useState<string[]>([])
   const [newUrl, setNewUrl] = useState('')
@@ -469,6 +574,7 @@ export default function Settings() {
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
         className="bg-surface-card border border-surface-border rounded-2xl p-5 shadow-card space-y-4">
         <h3 className="text-white font-semibold text-sm">📅 Calendar Sync</h3>
+        <MicrosoftSection />
         <InboundFeedsSection />
         <CalendarFeedSection />
       </motion.div>

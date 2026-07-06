@@ -100,6 +100,7 @@ class CalendarEvent(Base):
     all_day = Column(Boolean, default=False)
     color = Column(String(20), nullable=True)           # hex color for the dashboard
     created_by = Column(String(100), default="dashboard")
+    ms_id = Column(String(300), nullable=True)          # Outlook event id when two-way synced
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

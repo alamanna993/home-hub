@@ -2,6 +2,7 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from database import engine, Base, settings as app_settings
 from routers import items, locations, categories, chat, calendar, meals, chores, family
+from routers import msgraph_router
 from routers import auth as auth_router
 from routers import settings as settings_router
 from models import Category, Location, User, Setting
@@ -31,6 +32,7 @@ app.include_router(calendar.router, dependencies=[Depends(get_current_user)])
 app.include_router(meals.router, dependencies=[Depends(get_current_user)])
 app.include_router(chores.router, dependencies=[Depends(get_current_user)])
 app.include_router(family.router, dependencies=[Depends(get_current_user)])
+app.include_router(msgraph_router.router)
 
 
 def seed_defaults(db: Session):
@@ -107,6 +109,7 @@ def run_migrations():
         conn.execute(text("ALTER TABLE locations ADD COLUMN IF NOT EXISTS icon VARCHAR(50)"))
         conn.execute(text("ALTER TABLE chores ADD COLUMN IF NOT EXISTS icon VARCHAR(50)"))
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'admin'"))
+        conn.execute(text("ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS ms_id VARCHAR(300)"))
 
 
 @app.on_event("startup")

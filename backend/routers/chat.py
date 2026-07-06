@@ -311,8 +311,11 @@ async def chat(req: ChatRequest, db: Session = Depends(get_db)):
         event = CalendarEvent(title=item_name, start=start, all_day=all_day, created_by=req.source)
         db.add(event)
         db.commit()
+        db.refresh(event)
+        import msgraph
+        pushed = await msgraph.push_create(db, event)
         when = start.strftime("%A %b %d") + ("" if all_day else start.strftime(" at %H:%M"))
-        reply = f"🗓️ Added **{item_name}** to the calendar for {when}."
+        reply = f"🗓️ Added **{item_name}** to the calendar for {when}." + (" (synced to Outlook ✓)" if pushed else "")
         return {"reply": reply, "action": action, "parsed": parsed}
 
     elif action == "complete_chore" and item_name:
