@@ -1,8 +1,10 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Plus, Search, Trash2, Edit2, AlertTriangle } from 'lucide-react'
 import { getItems, getCategories, getLocations, deleteItem, Item, Category, Location } from '../lib/api'
 import ItemModal from '../components/ItemModal'
+import { cn } from '../lib/utils'
 import toast from 'react-hot-toast'
 
 export default function Inventory() {
@@ -13,12 +15,19 @@ export default function Inventory() {
   const [catFilter, setCatFilter] = useState('')
   const [editItem, setEditItem] = useState<Item | null | undefined>(undefined)
   const [loading, setLoading] = useState(true)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const roomFilter = searchParams.get('location') || ''
+
+  const setRoomFilter = (room: string) => {
+    setSearchParams(room ? { location: room } : {}, { replace: true })
+  }
 
   const load = useCallback(async () => {
     try {
       const params: Record<string, unknown> = {}
       if (search) params.search = search
       if (catFilter) params.category_id = catFilter
+      if (roomFilter) params.location_name = roomFilter
       const [i, c, l] = await Promise.all([getItems(params), getCategories(), getLocations()])
       setItems(i); setCategories(c); setLocations(l)
     } catch {
@@ -26,9 +35,22 @@ export default function Inventory() {
     } finally {
       setLoading(false)
     }
-  }, [search, catFilter])
+  }, [search, catFilter, roomFilter])
 
   useEffect(() => { load() }, [load])
+
+  const rooms = useMemo(() => {
+    const seen: Record<string, string | undefined> = {}
+    for (const l of locations) if (!(l.name in seen)) seen[l.name] = l.icon
+    return Object.entries(seen).map(([name, icon]) => ({ name, icon }))
+  }, [locations])
+
+  const chip = (active: boolean) => cn(
+    'flex items-center gap-1.5 px-3.5 py-2 rounded-full text-sm font-medium border transition-all whitespace-nowrap',
+    active
+      ? 'bg-accent/20 border-accent text-accent'
+      : 'bg-surface-card border-surface-border text-surface-muted hover:text-white hover:border-surface-muted'
+  )
 
   async function handleDelete(item: Item) {
     if (!confirm(`Delete "${item.name}"?`)) return
@@ -41,8 +63,10 @@ export default function Inventory() {
     <div className="p-6 space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-white text-2xl font-bold">Inventory</h2>
-          <p className="text-surface-muted text-sm mt-1">{items.length} items tracked</p>
+          <h2 className="text-white text-2xl font-bold">
+            {roomFilter ? `${rooms.find(r => r.name === roomFilter)?.icon || '📍'} ${roomFilter}` : 'Inventory'}
+          </h2>
+          <p className="text-surface-muted text-sm mt-1">{items.length} item{items.length === 1 ? '' : 's'}{roomFilter ? ' in this room' : ' tracked'}</p>
         </div>
         <button onClick={() => setEditItem(null)}
           className="flex items-center gap-2 bg-accent hover:bg-accent-hover text-white text-sm font-medium px-4 py-2 rounded-lg transition-all shadow-glow">
@@ -50,18 +74,33 @@ export default function Inventory() {
         </button>
       </div>
 
-      {/* Filters */}
-      <div className="flex gap-3 flex-wrap">
-        <div className="relative flex-1 min-w-48">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-muted" />
-          <input className="w-full bg-surface-card border border-surface-border rounded-lg pl-9 pr-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
-            placeholder="Search items…" value={search} onChange={e => setSearch(e.target.value)} />
-        </div>
-        <select className="bg-surface-card border border-surface-border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-accent"
-          value={catFilter} onChange={e => setCatFilter(e.target.value)}>
-          <option value="">All Categories</option>
-          {categories.map(c => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
-        </select>
+      {/* Search */}
+      <div className="relative">
+        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-muted" />
+        <input className="w-full bg-surface-card border border-surface-border rounded-lg pl-9 pr-3 py-2.5 text-white text-sm focus:outline-none focus:border-accent"
+          placeholder="Search items…" value={search} onChange={e => setSearch(e.target.value)} />
+      </div>
+
+      {/* Room chips */}
+      <div className="flex gap-2 flex-wrap">
+        <button className={chip(!roomFilter)} onClick={() => setRoomFilter('')}>🏠 All Rooms</button>
+        {rooms.map(r => (
+          <button key={r.name} className={chip(roomFilter === r.name)}
+            onClick={() => setRoomFilter(roomFilter === r.name ? '' : r.name)}>
+            <span>{r.icon || '📍'}</span> {r.name}
+          </button>
+        ))}
+      </div>
+
+      {/* Category chips */}
+      <div className="flex gap-2 flex-wrap">
+        <button className={chip(!catFilter)} onClick={() => setCatFilter('')}>🏷️ All Categories</button>
+        {categories.map(c => (
+          <button key={c.id} className={chip(catFilter === String(c.id))}
+            onClick={() => setCatFilter(catFilter === String(c.id) ? '' : String(c.id))}>
+            <span>{c.icon || '🏷️'}</span> {c.name}
+          </button>
+        ))}
       </div>
 
       {/* Items Grid */}

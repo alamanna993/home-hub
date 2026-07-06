@@ -94,6 +94,7 @@ def list_items(
     search: Optional[str] = None,
     category_id: Optional[int] = None,
     location_id: Optional[int] = None,
+    location_name: Optional[str] = None,   # matches all sub-locations of a room
     low_stock_only: bool = False,
     db: Session = Depends(get_db),
 ):
@@ -104,6 +105,8 @@ def list_items(
         query = query.filter(Item.category_id == category_id)
     if location_id:
         query = query.filter(Item.location_id == location_id)
+    if location_name:
+        query = query.join(Location).filter(Location.name.ilike(location_name))
     items = query.order_by(Item.name).all()
     if low_stock_only:
         items = [i for i in items if is_low(i)]
