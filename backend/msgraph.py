@@ -45,7 +45,20 @@ async def start_device_flow(db) -> dict:
     async with httpx.AsyncClient(timeout=15.0) as client:
         r = await client.post(f"{AUTH_BASE}/devicecode",
                               data={"client_id": client_id, "scope": SCOPES})
-        r.raise_for_status()
+        if r.status_code >= 400:
+            try:
+                desc = r.json().get("error_description", "")
+            except Exception:
+                desc = ""
+            if r.status_code == 401 or "7000218" in desc:
+                raise ValueError(
+                    "Microsoft rejected the request — this almost always means 'Allow public client flows' "
+                    "is still set to No. In the Azure portal open your HomeHub app → Authentication → "
+                    "Advanced settings → set 'Allow public client flows' to Yes → Save, then try again.")
+            if "700016" in desc:
+                raise ValueError("Microsoft doesn't recognize that Client ID — double-check you copied the "
+                                 "'Application (client) ID' from the app's Overview page.")
+            raise ValueError(desc.split("Trace ID")[0].strip() or f"Microsoft sign-in error (HTTP {r.status_code})")
         data = r.json()
     _device_flow.update({
         "device_code": data["device_code"],
