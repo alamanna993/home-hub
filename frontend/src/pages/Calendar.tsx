@@ -3,6 +3,8 @@ import { ChevronLeft, ChevronRight, Plus, RefreshCw, Trash2, X } from 'lucide-re
 import toast from 'react-hot-toast'
 import api, { getEvents, createEvent, deleteEvent, getChores, CalendarEvent, Chore } from '../lib/api'
 import { cn } from '../lib/utils'
+import { getUse24, setUse24, formatTime } from '../lib/time'
+import TimeSelect from '../components/TimeSelect'
 
 const COLORS = ['#6366f1', '#22c55e', '#f59e0b', '#ec4899', '#06b6d4', '#ef4444']
 
@@ -20,6 +22,12 @@ export default function Calendar() {
   const [endTime, setEndTime] = useState('')
   const [color, setColor] = useState(COLORS[0])
   const [syncing, setSyncing] = useState(false)
+  const [use24, setUse24State] = useState(getUse24())
+
+  function toggle24() {
+    setUse24(!use24)
+    setUse24State(!use24)
+  }
 
   async function resync() {
     setSyncing(true)
@@ -119,6 +127,10 @@ export default function Calendar() {
           <p className="text-surface-muted text-sm mt-1">Family events and appointments</p>
         </div>
         <div className="flex items-center gap-2">
+          <button onClick={toggle24} title="Switch between 12-hour and 24-hour times"
+            className="px-2.5 py-2 rounded-lg bg-surface-card border border-surface-border text-surface-muted hover:text-white transition-all text-xs font-medium">
+            {use24 ? '24h' : '12h'}
+          </button>
           <button onClick={resync} disabled={syncing} title="Re-fetch synced Google/Outlook calendars now"
             className="p-2 rounded-lg bg-surface-card border border-surface-border text-surface-muted hover:text-white transition-all disabled:opacity-50">
             <RefreshCw size={16} className={syncing ? 'animate-spin' : ''} />
@@ -162,7 +174,7 @@ export default function Calendar() {
                   {dayEvents.slice(0, 3).map(e => (
                     <div key={e.id} className={cn('text-[11px] text-white truncate rounded px-1 py-0.5', e.read_only && 'opacity-80 italic')}
                       style={{ background: `${e.color || '#6366f1'}33`, borderLeft: `2px solid ${e.color || '#6366f1'}` }}>
-                      {!e.all_day && <span className="opacity-70 mr-1">{e.start.slice(11, 16)}</span>}
+                      {!e.all_day && <span className="opacity-70 mr-1">{formatTime(e.start.slice(11, 16), use24)}</span>}
                       {e.title}
                     </div>
                   ))}
@@ -203,7 +215,7 @@ export default function Calendar() {
                     {e.read_only && <span className="text-surface-muted text-[10px]">synced</span>}
                     {!e.all_day && (
                       <span className="text-surface-muted text-xs">
-                        {e.start.slice(11, 16)}{e.end ? `–${e.end.slice(11, 16)}` : ''}
+                        {formatTime(e.start.slice(11, 16), use24)}{e.end ? `–${formatTime(e.end.slice(11, 16), use24)}` : ''}
                       </span>
                     )}
                     {!e.read_only && (
@@ -229,12 +241,9 @@ export default function Calendar() {
                 onKeyDown={e => e.key === 'Enter' && addEvent()} />
               <div className="flex gap-3 items-center flex-wrap">
                 <div className="flex items-center gap-1.5">
-                  <input type="time" className="bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
-                    value={time} onChange={e => setTime(e.target.value)} />
+                  <TimeSelect value={time} onChange={setTime} use24={use24} emptyLabel="All day" />
                   <span className="text-surface-muted text-xs">to</span>
-                  <input type="time" className="bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent disabled:opacity-40"
-                    value={endTime} onChange={e => setEndTime(e.target.value)} disabled={!time}
-                    title={time ? 'End time (optional — defaults to 1 hour)' : 'Set a start time first'} />
+                  <TimeSelect value={endTime} onChange={setEndTime} use24={use24} emptyLabel="+1 hour" disabled={!time} />
                 </div>
                 <div className="flex gap-1.5">
                   {COLORS.map(c => (

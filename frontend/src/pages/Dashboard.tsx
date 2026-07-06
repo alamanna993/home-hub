@@ -5,6 +5,7 @@ import { AlertTriangle, Clock } from 'lucide-react'
 import { getStats, getLocations, getChores, getMeals, getEvents, Stats, Location, Chore, Meal, CalendarEvent } from '../lib/api'
 import StatCard from '../components/StatCard'
 import { timeAgo } from '../lib/utils'
+import { getUse24, formatTime } from '../lib/time'
 
 function ymd(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -144,7 +145,7 @@ export default function Dashboard() {
             {events.map(e => (
               <div key={e.id} className="flex items-center gap-2.5 text-sm">
                 <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: e.color || '#6366f1' }} />
-                {!e.all_day && <span className="text-surface-muted text-xs font-mono">{e.start.slice(11, 16)}</span>}
+                {!e.all_day && <span className="text-surface-muted text-xs font-mono">{formatTime(e.start.slice(11, 16), getUse24())}</span>}
                 <span className="text-white truncate">{e.title}</span>
               </div>
             ))}
