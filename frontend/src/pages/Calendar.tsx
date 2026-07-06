@@ -120,7 +120,7 @@ export default function Calendar() {
   const monthLabel = cursor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
 
   return (
-    <div className="p-6 space-y-5">
+    <div className="p-4 sm:p-6 space-y-5">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-white text-2xl font-bold">Calendar</h2>
@@ -147,7 +147,86 @@ export default function Calendar() {
         </div>
       </div>
 
-      <div className="bg-surface-card border border-surface-border rounded-2xl overflow-hidden">
+      {/* Phone: agenda list */}
+      <div className="lg:hidden space-y-2">
+        {(() => {
+          const monthDays = days.filter(d => d.getMonth() === cursor.getMonth())
+          const cards = monthDays.filter(d => {
+            const key = ymd(d)
+            return (byDay[key] || []).length > 0 || choresFor(d).length > 0 || key === todayKey
+          })
+          if (cards.length === 0) return (
+            <div className="bg-surface-card border border-surface-border rounded-xl p-6 text-center space-y-3">
+              <p className="text-surface-muted text-sm">No events this month</p>
+              <button onClick={() => setSelectedDay(ymd(monthDays[0]))}
+                className="inline-flex items-center gap-1.5 text-accent text-sm font-medium">
+                <Plus size={14} /> Add an event
+              </button>
+            </div>
+          )
+          return cards.map(d => {
+            const key = ymd(d)
+            const dayEvents = byDay[key] || []
+            const dayChores = choresFor(d)
+            const isToday = key === todayKey
+            return (
+              <div key={key} className={cn('bg-surface-card border rounded-xl p-3', isToday ? 'border-accent/40' : 'border-surface-border')}>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <button onClick={() => setSelectedDay(key)} className="flex items-center gap-2 flex-1 min-w-0 text-left">
+                    <span className={cn(
+                      'inline-flex w-7 h-7 items-center justify-center rounded-full text-xs flex-shrink-0',
+                      isToday ? 'bg-accent text-white font-bold' : 'bg-surface text-surface-muted'
+                    )}>
+                      {d.getDate()}
+                    </span>
+                    <span className="text-white text-sm font-medium">
+                      {d.toLocaleDateString(undefined, { weekday: 'long' })}
+                      {isToday && <span className="text-accent text-xs ml-1.5">Today</span>}
+                    </span>
+                  </button>
+                  <button onClick={() => setSelectedDay(key)} aria-label={`Add event on ${key}`}
+                    className="p-2 rounded-lg text-surface-muted hover:text-accent transition-all">
+                    <Plus size={16} />
+                  </button>
+                </div>
+                {dayEvents.length === 0 && dayChores.length === 0 ? (
+                  <p className="text-surface-muted text-xs pl-9">Nothing planned</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {dayEvents.map(e => (
+                      <div key={e.id} className="flex items-center gap-2 bg-surface rounded-lg px-3 py-2">
+                        <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: e.color || '#6366f1' }} />
+                        <span className={cn('text-white text-sm flex-1 truncate', e.read_only && 'italic')}>{e.title}</span>
+                        {e.read_only && <span className="text-surface-muted text-[10px]">synced</span>}
+                        {!e.all_day && (
+                          <span className="text-surface-muted text-xs">
+                            {formatTime(e.start.slice(11, 16), use24)}{e.end ? `–${formatTime(e.end.slice(11, 16), use24)}` : ''}
+                          </span>
+                        )}
+                        {!e.read_only && (
+                          <button onClick={() => remove(e.id)} className="p-2 -m-1.5 text-surface-muted hover:text-red-400"><Trash2 size={14} /></button>
+                        )}
+                      </div>
+                    ))}
+                    {dayChores.map(({ chore, done }) => (
+                      <div key={`c${chore.id}`} className="flex items-center gap-2 bg-green-500/5 border border-dashed border-green-500/30 rounded-lg px-3 py-2">
+                        <span className="text-base">{done ? '✅' : (chore.icon || '🧹')}</span>
+                        <span className={cn('text-sm flex-1 truncate', done ? 'text-green-400/70 line-through' : 'text-green-300')}>
+                          {chore.title}{chore.assigned_to ? ` — ${chore.assigned_to}` : ''}
+                        </span>
+                        <span className="text-surface-muted text-[10px]">chore</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })
+        })()}
+      </div>
+
+      {/* Desktop: month grid */}
+      <div className="hidden lg:block bg-surface-card border border-surface-border rounded-2xl overflow-hidden">
         <div className="grid grid-cols-7 border-b border-surface-border">
           {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => (
             <div key={d} className="px-2 py-2 text-center text-xs font-medium text-surface-muted">{d}</div>
@@ -197,7 +276,7 @@ export default function Calendar() {
 
       {selectedDay && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => setSelectedDay(null)}>
-          <div className="bg-surface-card border border-surface-border rounded-2xl p-5 w-full max-w-md space-y-4"
+          <div className="bg-surface-card border border-surface-border rounded-2xl p-5 w-full max-w-md space-y-4 max-h-modal overflow-y-auto"
             onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <h3 className="text-white font-semibold">
@@ -219,7 +298,7 @@ export default function Calendar() {
                       </span>
                     )}
                     {!e.read_only && (
-                      <button onClick={() => remove(e.id)} className="text-surface-muted hover:text-red-400"><Trash2 size={14} /></button>
+                      <button onClick={() => remove(e.id)} className="p-2 -m-2 text-surface-muted hover:text-red-400"><Trash2 size={14} /></button>
                     )}
                   </div>
                 ))}

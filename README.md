@@ -12,6 +12,7 @@ Self-hosted family hub: home inventory, AI chat (local or cloud), meal planning,
 - 🤖 **Pluggable AI** — Ollama or LM Studio (local), OpenAI or Claude (cloud); model dropdowns list what's actually installed; switch in Settings with a live test button, or run with no AI at all
 - 💾 **Redundant data** — pick the database/backup folders in the setup wizard (NAS-friendly, with a path tester) plus automatic nightly SQL backups with retention
 - 🧙 **Setup wizard** — first login is admin/admin; the wizard walks through password, storage, AI, and bots in the browser
+- 📱 **Phone-friendly** — hamburger-drawer navigation, an agenda-style calendar and day-at-a-time meal planner on small screens, touch-sized buttons everywhere; the desktop layout is unchanged on tablets and up
 
 ## Quick Install (one line)
 
@@ -164,3 +165,9 @@ Change the model anytime from **Settings → AI Provider**, or via `.env` + `doc
 
 Point any browser in kiosk mode at `http://<your-server-ip>:3000`.
 On Android: "Fully Kiosk Browser". On iPad: Guided Access.
+
+## Phones
+
+The web app is fully usable from a phone browser — navigation lives behind a ☰ menu,
+the calendar becomes a scrolling agenda, and the meal planner shows one day at a time.
+Add it to your home screen (Share → Add to Home Screen) for an app-like experience.

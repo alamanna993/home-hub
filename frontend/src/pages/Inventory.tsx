@@ -168,14 +168,14 @@ export default function Inventory() {
                   <p>📅 Entered {fmtDay(item.created_at)}</p>
                   {item.notes && <p className="text-surface-muted truncate">💬 {item.notes}</p>}
                 </div>
-                <div className="flex gap-2 mt-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="flex gap-2 mt-3 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 lg:focus-within:opacity-100 transition-opacity">
                   <button onClick={() => setEditItem(item)}
-                    className="flex-1 flex items-center justify-center gap-1.5 text-xs py-1.5 rounded-lg border border-surface-border text-surface-muted hover:text-white hover:border-accent transition-all">
-                    <Edit2 size={12} /> Edit
+                    className="flex-1 flex items-center justify-center gap-1.5 text-xs py-2.5 rounded-lg border border-surface-border text-surface-muted hover:text-white hover:border-accent transition-all">
+                    <Edit2 size={14} /> Edit
                   </button>
                   <button onClick={() => handleDelete(item)}
-                    className="flex-1 flex items-center justify-center gap-1.5 text-xs py-1.5 rounded-lg border border-surface-border text-surface-muted hover:text-red-400 hover:border-red-500/40 transition-all">
-                    <Trash2 size={12} /> Delete
+                    className="flex-1 flex items-center justify-center gap-1.5 text-xs py-2.5 rounded-lg border border-surface-border text-surface-muted hover:text-red-400 hover:border-red-500/40 transition-all">
+                    <Trash2 size={14} /> Delete
                   </button>
                 </div>
               </motion.div>

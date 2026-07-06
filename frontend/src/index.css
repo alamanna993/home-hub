@@ -9,6 +9,10 @@
   ::-webkit-scrollbar-track { background: #0f1117; }
   ::-webkit-scrollbar-thumb { background: #2a2d3a; border-radius: 3px; }
   ::-webkit-scrollbar-thumb:hover { background: #6366f1; }
+  /* iOS Safari zooms into focused inputs under 16px; the app's text-sm fields trigger it */
+  @media (max-width: 1023px) {
+    input, select, textarea { font-size: 16px; }
+  }
 }
 
 @layer utilities {
@@ -21,4 +25,7 @@
     border: 1px solid rgba(99, 102, 241, 0.4);
     box-shadow: 0 0 20px rgba(99, 102, 241, 0.15);
   }
+  /* dvh with vh fallback — arbitrary Tailwind values can't express the cascade */
+  .h-app { height: 100vh; height: 100dvh; }
+  .max-h-modal { max-height: 85vh; max-height: 85dvh; }
 }

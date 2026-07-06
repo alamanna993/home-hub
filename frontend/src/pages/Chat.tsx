@@ -50,7 +50,7 @@ export default function Chat() {
   }
 
   return (
-    <div className="flex flex-col h-full p-6 gap-4 max-h-screen">
+    <div className="flex flex-col h-full p-4 sm:p-6 gap-4">
       <div>
         <h2 className="text-white text-2xl font-bold">Chat</h2>
         <p className="text-surface-muted text-sm mt-1">Ask your local AI about your home inventory</p>

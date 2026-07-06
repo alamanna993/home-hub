@@ -112,7 +112,7 @@ function UsersSection() {
           <div key={u.id} className="flex items-center gap-3 bg-surface rounded-lg px-3 py-2 group">
             <span className="text-white text-sm flex-1">{u.username}</span>
             <span className={cnRole(u.role)}>{u.role}</span>
-            <button onClick={() => remove(u)} className="opacity-0 group-hover:opacity-100 text-surface-muted hover:text-red-400 transition-all">
+            <button onClick={() => remove(u)} className="opacity-100 lg:opacity-0 lg:group-hover:opacity-100 p-2 -my-2 -mr-1 text-surface-muted hover:text-red-400 transition-all">
               <Trash2 size={14} />
             </button>
           </div>

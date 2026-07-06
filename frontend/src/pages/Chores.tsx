@@ -120,11 +120,12 @@ export default function Chores() {
               <span key={m.id} className="group flex items-center gap-1.5 bg-surface border border-surface-border rounded-full pl-2 pr-2.5 py-1 text-sm text-white">
                 <span className="text-base">{m.icon || '🙂'}</span> {m.name}
                 <button onClick={() => { setEditMemberId(m.id); setEditMember({ name: m.name, icon: m.icon || '🙂' }) }}
-                  className="opacity-0 group-hover:opacity-100 text-surface-muted hover:text-accent transition-all">
-                  <Pencil size={11} />
+                  className="opacity-100 lg:opacity-0 lg:group-hover:opacity-100 p-1.5 -my-1 text-surface-muted hover:text-accent transition-all">
+                  <Pencil size={14} />
                 </button>
-                <button onClick={() => removeMember(m)} className="opacity-0 group-hover:opacity-100 text-surface-muted hover:text-red-400 transition-all">
-                  <X size={12} />
+                <button onClick={() => removeMember(m)}
+                  className="opacity-100 lg:opacity-0 lg:group-hover:opacity-100 p-1.5 -my-1 -mr-1 text-surface-muted hover:text-red-400 transition-all">
+                  <X size={14} />
                 </button>
               </span>
             )
@@ -226,7 +227,7 @@ export default function Chores() {
                       )}
                     </button>
                     <button onClick={() => remove(chore.id)}
-                      className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-surface-muted hover:text-red-400 transition-all">
+                      className="absolute top-1 right-1 p-2 rounded-full bg-surface-card/80 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 text-surface-muted hover:text-red-400 transition-all">
                       <Trash2 size={14} />
                     </button>
                   </motion.div>

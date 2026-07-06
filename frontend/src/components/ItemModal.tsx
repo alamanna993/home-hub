@@ -102,7 +102,7 @@ export default function ItemModal({ item, categories, locations, onClose, onSave
       >
         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
         <motion.div
-          className="relative bg-surface-card border border-surface-border rounded-2xl shadow-card w-full max-w-md p-6"
+          className="relative bg-surface-card border border-surface-border rounded-2xl shadow-card w-full max-w-md p-6 max-h-modal overflow-y-auto"
           initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }}
         >
           <div className="flex items-center justify-between mb-5">

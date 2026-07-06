@@ -15,7 +15,7 @@ const links = [
   { to: '/chat', icon: MessageSquare, label: 'Chat' },
 ]
 
-export default function Sidebar() {
+export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const { username, logout, isAdmin } = useAuth()
   const navigate = useNavigate()
 
@@ -25,7 +25,7 @@ export default function Sidebar() {
   }
 
   return (
-    <aside className="w-60 min-h-screen bg-surface-card border-r border-surface-border flex flex-col">
+    <aside className="w-60 h-full bg-surface-card border-r border-surface-border flex flex-col overflow-y-auto pb-[env(safe-area-inset-bottom)]">
       <div className="px-6 py-6 border-b border-surface-border">
         <div className="flex items-center gap-3">
           <span className="text-2xl">🏠</span>
@@ -42,6 +42,7 @@ export default function Sidebar() {
             key={to}
             to={to}
             end={to === '/'}
+            onClick={onNavigate}
             className={({ isActive }) =>
               cn(
                 'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150',
@@ -60,6 +61,7 @@ export default function Sidebar() {
       <div className="px-3 py-3 border-t border-surface-border space-y-1">
         {isAdmin && <NavLink
           to="/settings"
+          onClick={onNavigate}
           className={({ isActive }) =>
             cn(
               'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150',

@@ -24,6 +24,8 @@ function mondayOf(d: Date) {
 
 export default function Meals() {
   const [weekStart, setWeekStart] = useState(() => mondayOf(new Date()))
+  // Phone day view starts on today (index within the Monday-based week)
+  const [dayIdx, setDayIdx] = useState(() => (new Date().getDay() + 6) % 7)
   const [meals, setMeals] = useState<Meal[]>([])
   const [editing, setEditing] = useState<{ date: string; type: MealType } | null>(null)
   const [title, setTitle] = useState('')
@@ -62,7 +64,7 @@ export default function Meals() {
   const weekLabel = `${days[0].toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${days[6].toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
 
   return (
-    <div className="p-6 space-y-5">
+    <div className="p-4 sm:p-6 space-y-5">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-white text-2xl font-bold">Meal Planner</h2>
@@ -85,7 +87,54 @@ export default function Meals() {
         </div>
       </div>
 
-      <div className="overflow-x-auto">
+      {/* Phone: one day at a time */}
+      <div className="lg:hidden space-y-3">
+        <div className="grid grid-cols-7 gap-1">
+          {days.map((d, i) => {
+            const key = ymd(d)
+            return (
+              <button key={key} onClick={() => setDayIdx(i)}
+                className={cn(
+                  'py-2 rounded-lg text-center transition-all',
+                  i === dayIdx ? 'bg-accent/15 text-accent font-semibold' : 'text-surface-muted hover:text-white',
+                  key === todayKey && i !== dayIdx && 'ring-1 ring-accent/40'
+                )}>
+                <div className="text-xs">{d.toLocaleDateString(undefined, { weekday: 'short' })}</div>
+                <div className="text-sm">{d.getDate()}</div>
+              </button>
+            )
+          })}
+        </div>
+        {(() => {
+          const key = ymd(days[dayIdx])
+          return MEAL_TYPES.map(({ type, label, icon }) => (
+            <div key={type} className="bg-surface-card border border-surface-border rounded-xl p-3 space-y-2">
+              <div className="flex items-center gap-2 text-surface-muted text-sm font-medium">
+                <span>{icon}</span> {label}
+              </div>
+              {mealFor(key, type).map(m => (
+                <div key={m.id} className="bg-accent/10 border border-accent/20 rounded-lg px-3 py-2 flex items-start gap-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white text-sm font-medium leading-snug">{m.title}</p>
+                    {m.notes && <p className="text-surface-muted text-xs mt-0.5">{m.notes}</p>}
+                  </div>
+                  <button onClick={() => remove(m.id)}
+                    className="p-2 -m-1 text-surface-muted hover:text-red-400 flex-shrink-0">
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))}
+              <button onClick={() => setEditing({ date: key, type })}
+                className="w-full py-2.5 rounded-lg border border-dashed border-surface-border text-surface-muted active:border-accent active:text-accent flex items-center justify-center gap-1.5 text-sm transition-all">
+                <Plus size={14} /> Add {label.toLowerCase()}
+              </button>
+            </div>
+          ))
+        })()}
+      </div>
+
+      {/* Desktop: full week grid */}
+      <div className="hidden lg:block overflow-x-auto">
         <div className="min-w-[760px] grid grid-cols-[90px_repeat(7,1fr)] gap-2">
           <div />
           {days.map(d => {
@@ -116,13 +165,13 @@ export default function Meals() {
                           {m.notes && <p className="text-surface-muted text-[10px] truncate">{m.notes}</p>}
                         </div>
                         <button onClick={() => remove(m.id)}
-                          className="opacity-0 group-hover:opacity-100 text-surface-muted hover:text-red-400 flex-shrink-0">
+                          className="opacity-100 lg:opacity-0 lg:group-hover:opacity-100 p-1.5 -m-1 text-surface-muted hover:text-red-400 flex-shrink-0 transition-opacity">
                           <Trash2 size={12} />
                         </button>
                       </div>
                     ))}
                     <button onClick={() => setEditing({ date: key, type })}
-                      className="opacity-0 group-hover/cell:opacity-100 flex items-center justify-center gap-1 text-surface-muted hover:text-accent text-[11px] py-0.5 transition-all">
+                      className="opacity-100 lg:opacity-0 lg:group-hover/cell:opacity-100 flex items-center justify-center gap-1 text-surface-muted hover:text-accent text-[11px] py-1.5 transition-all">
                       <Plus size={12} /> add
                     </button>
                   </div>
@@ -135,7 +184,7 @@ export default function Meals() {
 
       {editing && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => setEditing(null)}>
-          <div className="bg-surface-card border border-surface-border rounded-2xl p-5 w-full max-w-md space-y-4"
+          <div className="bg-surface-card border border-surface-border rounded-2xl p-5 w-full max-w-md space-y-4 max-h-modal overflow-y-auto"
             onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <h3 className="text-white font-semibold capitalize">

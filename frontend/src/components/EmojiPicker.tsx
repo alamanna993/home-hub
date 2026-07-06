@@ -41,10 +41,14 @@ interface Props {
 
 export default function EmojiPicker({ value, onChange, buttonClassName }: Props) {
   const [open, setOpen] = useState(false)
+  const [alignRight, setAlignRight] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!open) return
+    // Flip the panel to the right edge when 288px (w-72) would run off-screen
+    const r = ref.current?.getBoundingClientRect()
+    setAlignRight(!!r && r.left + 288 > window.innerWidth - 8)
     function onClick(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
     }
@@ -60,7 +64,7 @@ export default function EmojiPicker({ value, onChange, buttonClassName }: Props)
         {value || '📦'}
       </button>
       {open && (
-        <div className="absolute z-50 mt-1 left-0 w-72 max-h-72 overflow-y-auto bg-surface-card border border-surface-border rounded-xl shadow-card p-3 space-y-2">
+        <div className={`absolute z-50 mt-1 ${alignRight ? 'right-0' : 'left-0'} w-72 max-w-[calc(100vw-1rem)] max-h-72 overflow-y-auto bg-surface-card border border-surface-border rounded-xl shadow-card p-3 space-y-2`}>
           <input
             className="w-full bg-surface border border-surface-border rounded-lg px-2 py-1.5 text-white text-sm text-center focus:outline-none focus:border-accent"
             placeholder="…or type/paste any emoji"

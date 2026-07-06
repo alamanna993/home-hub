@@ -103,11 +103,11 @@ export default function Locations() {
                 </button>
               </div>
             ) : (
-              <div className="flex flex-col gap-1.5 opacity-0 group-hover:opacity-100 transition-all">
-                <button onClick={() => startEdit(loc)} className="text-surface-muted hover:text-accent">
+              <div className="flex flex-col gap-1 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-all">
+                <button onClick={() => startEdit(loc)} className="p-2 -m-1 text-surface-muted hover:text-accent">
                   <Pencil size={14} />
                 </button>
-                <button onClick={() => remove(loc.id)} className="text-surface-muted hover:text-red-400">
+                <button onClick={() => remove(loc.id)} className="p-2 -m-1 text-surface-muted hover:text-red-400">
                   <Trash2 size={14} />
                 </button>
               </div>
