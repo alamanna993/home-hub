@@ -150,12 +150,30 @@ function shortenUrl(u: string) {
 }
 
 function MicrosoftSection() {
-  const [status, setStatus] = useState<{ connected: boolean; account: string; client_id_set: boolean } | null>(null)
+  const [status, setStatus] = useState<{ connected: boolean; mode?: string; account: string; client_id_set: boolean } | null>(null)
+  const [authMode, setAuthMode] = useState<'device' | 'secret'>('secret')
   const [clientId, setClientId] = useState('')
   const [tenant, setTenant] = useState('')
+  const [secret, setSecret] = useState('')
+  const [email, setEmail] = useState('')
   const [code, setCode] = useState<{ user_code: string; verification_uri: string } | null>(null)
   const [busy, setBusy] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
+
+  async function connectWithSecret() {
+    setBusy(true)
+    try {
+      const { data } = await axios.post('/api/msgraph/credentials', {
+        client_id: clientId.trim(), tenant: tenant.trim(),
+        client_secret: secret.trim(), user_email: email.trim(),
+      })
+      toast.success(`Connected — syncing ${data.account}'s calendar!`)
+      setSecret('')
+      load()
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || 'Could not connect', { duration: 9000 })
+    } finally { setBusy(false) }
+  }
 
   const load = () => axios.get('/api/msgraph/status').then(r => setStatus(r.data)).catch(() => {})
   useEffect(() => { load() }, [])
@@ -227,47 +245,86 @@ function MicrosoftSection() {
           <p className="text-3xl font-mono font-bold text-accent tracking-[0.3em]">{code.user_code}</p>
           <p className="text-surface-muted text-xs">Waiting for you to finish signing in…</p>
         </div>
-      ) : status.client_id_set ? (
-        <>
-          <button onClick={connect} disabled={busy}
-            className="w-full py-2.5 bg-accent hover:bg-accent-hover text-white text-sm font-medium rounded-lg transition-all disabled:opacity-50">
-            {busy ? 'Starting…' : 'Connect Microsoft Account'}
-          </button>
-          <button onClick={() => setStatus(s => s ? { ...s, client_id_set: false } : s)}
-            className="text-surface-muted hover:text-white text-xs underline">
-            change client ID
-          </button>
-        </>
       ) : (
         <>
-          <div className="flex gap-2">
-            <input className="flex-1 bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
-              placeholder="Application (client) ID from your Azure app registration"
-              value={clientId} onChange={e => setClientId(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && clientId.trim() && saveAndConnect()} />
-            <button onClick={saveAndConnect} disabled={!clientId.trim() || busy}
-              className="px-4 py-2 bg-accent hover:bg-accent-hover text-white text-sm font-medium rounded-lg transition-all disabled:opacity-50 whitespace-nowrap">
-              {busy ? 'Starting…' : 'Save & Connect'}
+          <div className="flex gap-1.5">
+            <button onClick={() => setAuthMode('secret')}
+              className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all ${authMode === 'secret' ? 'bg-accent/20 border-accent text-accent' : 'bg-surface border-surface-border text-surface-muted hover:text-white'}`}>
+              🔑 Client secret
+            </button>
+            <button onClick={() => setAuthMode('device')}
+              className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all ${authMode === 'device' ? 'bg-accent/20 border-accent text-accent' : 'bg-surface border-surface-border text-surface-muted hover:text-white'}`}>
+              📱 Phone sign-in (no secret)
             </button>
           </div>
-          <input className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
-            placeholder="Directory (tenant) ID — only if your app is single-tenant (optional)"
-            value={tenant} onChange={e => setTenant(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && clientId.trim() && saveAndConnect()} />
+
+          {authMode === 'secret' ? (
+            <>
+              <input className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
+                placeholder="Application (client) ID" value={clientId} onChange={e => setClientId(e.target.value)} />
+              <input className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
+                placeholder="Directory (tenant) ID" value={tenant} onChange={e => setTenant(e.target.value)} />
+              <input type="password" className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
+                placeholder="Client secret VALUE (not the Secret ID)" value={secret} onChange={e => setSecret(e.target.value)} />
+              <input className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
+                placeholder="Calendar email (e.g. you@lamanna.family)" value={email} onChange={e => setEmail(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && connectWithSecret()} />
+              <button onClick={connectWithSecret} disabled={busy || !clientId.trim() || !tenant.trim() || !secret.trim() || !email.trim()}
+                className="w-full py-2.5 bg-accent hover:bg-accent-hover text-white text-sm font-medium rounded-lg transition-all disabled:opacity-50">
+                {busy ? 'Testing credentials…' : 'Connect'}
+              </button>
+            </>
+          ) : status.client_id_set ? (
+            <>
+              <button onClick={connect} disabled={busy}
+                className="w-full py-2.5 bg-accent hover:bg-accent-hover text-white text-sm font-medium rounded-lg transition-all disabled:opacity-50">
+                {busy ? 'Starting…' : 'Connect Microsoft Account'}
+              </button>
+              <button onClick={() => setStatus(s => s ? { ...s, client_id_set: false } : s)}
+                className="text-surface-muted hover:text-white text-xs underline">
+                change client ID
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="flex gap-2">
+                <input className="flex-1 bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
+                  placeholder="Application (client) ID from your Azure app registration"
+                  value={clientId} onChange={e => setClientId(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && clientId.trim() && saveAndConnect()} />
+                <button onClick={saveAndConnect} disabled={!clientId.trim() || busy}
+                  className="px-4 py-2 bg-accent hover:bg-accent-hover text-white text-sm font-medium rounded-lg transition-all disabled:opacity-50 whitespace-nowrap">
+                  {busy ? 'Starting…' : 'Save & Connect'}
+                </button>
+              </div>
+              <input className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
+                placeholder="Directory (tenant) ID — only if your app is single-tenant (optional)"
+                value={tenant} onChange={e => setTenant(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && clientId.trim() && saveAndConnect()} />
+            </>
+          )}
           <button onClick={() => setShowHelp(v => !v)} className="text-accent text-xs underline">
             {showHelp ? 'Hide setup steps' : 'How do I get a client ID? (one-time, ~5 min)'}
           </button>
-          {showHelp && (
+          {showHelp && (authMode === 'secret' ? (
+            <ol className="text-surface-muted text-xs leading-relaxed list-decimal ml-4 space-y-1">
+              <li><span className="text-white font-mono">portal.azure.com</span> → Microsoft Entra ID → App registrations → your app (or <span className="text-white">New registration</span>, any account-type choice is fine for this mode).</li>
+              <li>Overview page: copy the <span className="text-white">Application (client) ID</span> and the <span className="text-white">Directory (tenant) ID</span>.</li>
+              <li><span className="text-white">API permissions</span> → Add a permission → Microsoft Graph → <span className="text-white">Application permissions</span> → add <span className="text-white font-mono">Calendars.ReadWrite</span> → click <span className="text-white">Grant admin consent</span> (must show a green check).</li>
+              <li><span className="text-white">Certificates &amp; secrets</span> → New client secret → copy the <span className="text-white">Value</span> column immediately (it's hidden later). That's what goes in the secret box.</li>
+              <li>Calendar email = the mailbox whose calendar HomeHub syncs (your family calendar's account).</li>
+            </ol>
+          ) : (
             <ol className="text-surface-muted text-xs leading-relaxed list-decimal ml-4 space-y-1">
               <li>Go to <span className="text-white font-mono">portal.azure.com</span> → Microsoft Entra ID → App registrations → <span className="text-white">New registration</span></li>
               <li>Name: <span className="text-white">HomeHub</span>. Supported account types: <span className="text-white">"Accounts in any organizational directory and personal Microsoft accounts"</span>. No redirect URI needed. Register.</li>
               <li>On the app's Overview page, copy the <span className="text-white">Application (client) ID</span> and paste it above.</li>
-              <li><span className="text-white">Authentication</span> → Advanced settings → <span className="text-white">Allow public client flows = Yes</span> → Save.</li>
-              <li><span className="text-white">API permissions</span> → Add a permission → Microsoft Graph → <span className="text-white">Delegated</span> (not Application!) → add <span className="text-white font-mono">Calendars.ReadWrite</span> and <span className="text-white font-mono">offline_access</span> → then click <span className="text-white">Grant admin consent</span>.</li>
-              <li>No client secret is needed — the device sign-in doesn't use one.</li>
+              <li><span className="text-white">Authentication</span> → Advanced settings → <span className="text-white">Allow public client flows = Yes</span> → Save (the Save bar is at the top!).</li>
+              <li><span className="text-white">API permissions</span> → Add a permission → Microsoft Graph → <span className="text-white">Delegated</span> → add <span className="text-white font-mono">Calendars.ReadWrite</span> and <span className="text-white font-mono">offline_access</span> → <span className="text-white">Grant admin consent</span>.</li>
+              <li>No client secret is used in this mode.</li>
               <li>Come back here and hit <span className="text-white">Save &amp; Connect</span>.</li>
             </ol>
-          )}
+          ))}
         </>
       )}
     </div>

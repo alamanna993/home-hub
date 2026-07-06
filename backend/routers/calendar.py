@@ -42,7 +42,7 @@ async def sync_with_graph(db: Session, force: bool = False):
     window_start = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%S")
     window_end = (datetime.now() + timedelta(days=365)).strftime("%Y-%m-%dT%H:%M:%S")
     remote: dict[str, dict] = {}
-    path = (f"/me/calendarView?startDateTime={window_start}&endDateTime={window_end}"
+    path = (f"{msgraph.me_path(db)}/calendarView?startDateTime={window_start}&endDateTime={window_end}"
             f"&$top=200&$select=id,subject,bodyPreview,start,end,isAllDay")
     try:
         while path:

@@ -38,8 +38,25 @@ def get_timezone(db) -> str:
     return _get(db, "timezone") or "America/New_York"
 
 
+def get_mode(db) -> str:
+    """'secret' = client-credentials daemon (Application permissions);
+    'delegated' = device-code sign-in; '' = not configured."""
+    if _get(db, "msgraph_client_secret") and _get(db, "msgraph_tenant") and _get(db, "msgraph_user_email"):
+        return "secret"
+    if _get(db, "msgraph_refresh_token"):
+        return "delegated"
+    return ""
+
+
 def is_connected(db) -> bool:
-    return bool(_get(db, "msgraph_client_id") and _get(db, "msgraph_refresh_token"))
+    return bool(_get(db, "msgraph_client_id")) and get_mode(db) != ""
+
+
+def me_path(db) -> str:
+    """Graph path prefix: /me for delegated, /users/{email} for secret mode."""
+    if get_mode(db) == "secret":
+        return f"/users/{_get(db, 'msgraph_user_email')}"
+    return "/me"
 
 
 async def start_device_flow(db) -> dict:
@@ -118,6 +135,8 @@ async def poll_device_flow(db) -> dict:
 def disconnect(db):
     _set(db, "msgraph_refresh_token", "")
     _set(db, "msgraph_account", "")
+    _set(db, "msgraph_client_secret", "")
+    _set(db, "msgraph_user_email", "")
     _token_cache.update({"access": None, "exp": 0.0})
 
 
@@ -125,6 +144,22 @@ async def get_access_token(db) -> Optional[str]:
     if _token_cache["access"] and time.time() < _token_cache["exp"]:
         return _token_cache["access"]
     client_id = _get(db, "msgraph_client_id")
+
+    if get_mode(db) == "secret":
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.post(f"{_auth_base(db)}/token", data={
+                "grant_type": "client_credentials",
+                "client_id": client_id,
+                "client_secret": _get(db, "msgraph_client_secret"),
+                "scope": "https://graph.microsoft.com/.default",
+            })
+            data = r.json()
+        if "access_token" not in data:
+            logger.warning("Graph client-credentials token failed: %s", data.get("error_description", "")[:200])
+            return None
+        _token_cache.update({"access": data["access_token"], "exp": time.time() + data.get("expires_in", 3600) - 120})
+        return data["access_token"]
+
     refresh = _get(db, "msgraph_refresh_token")
     if not client_id or not refresh:
         return None
@@ -182,7 +217,7 @@ async def push_create(db, event) -> bool:
     if not is_connected(db):
         return False
     try:
-        result = await graph_request(db, "POST", "/me/events", json=_event_body(event, get_timezone(db)))
+        result = await graph_request(db, "POST", f"{me_path(db)}/events", json=_event_body(event, get_timezone(db)))
         if result and result.get("id"):
             event.ms_id = result["id"]
             db.commit()
@@ -196,7 +231,7 @@ async def push_update(db, event) -> bool:
     if not is_connected(db) or not event.ms_id:
         return False
     try:
-        await graph_request(db, "PATCH", f"/me/events/{event.ms_id}", json=_event_body(event, get_timezone(db)))
+        await graph_request(db, "PATCH", f"{me_path(db)}/events/{event.ms_id}", json=_event_body(event, get_timezone(db)))
         return True
     except Exception as e:
         logger.warning("Graph push_update failed for '%s': %s", event.title, e)
@@ -207,7 +242,7 @@ async def push_delete(db, ms_id: str) -> bool:
     if not is_connected(db) or not ms_id:
         return False
     try:
-        await graph_request(db, "DELETE", f"/me/events/{ms_id}")
+        await graph_request(db, "DELETE", f"{me_path(db)}/events/{ms_id}")
         return True
     except Exception as e:
         logger.warning("Graph push_delete failed: %s", e)
