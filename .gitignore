@@ -16,6 +16,9 @@ frontend/dist/
 postgres_data/
 backups/
 
+# Per-server private notes
+SERVER-NOTES.md
+
 # OS
 .DS_Store
 Thumbs.db
