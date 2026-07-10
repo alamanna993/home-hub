@@ -27,7 +27,8 @@ export default function Inventory() {
       const params: Record<string, unknown> = {}
       if (search) params.search = search
       if (catFilter) params.category_id = catFilter
-      if (roomFilter) params.location_name = roomFilter
+      if (roomFilter === '__none__') params.unlocated = true
+      else if (roomFilter) params.location_name = roomFilter
       const [i, c, l] = await Promise.all([getItems(params), getCategories(), getLocations()])
       setItems(i); setCategories(c); setLocations(l)
     } catch {
@@ -70,9 +71,13 @@ export default function Inventory() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-white text-2xl font-bold">
-            {roomFilter ? `${rooms.find(r => r.name === roomFilter)?.icon || '📍'} ${roomFilter}` : 'Inventory'}
+            {roomFilter === '__none__' ? '📭 No location'
+              : roomFilter ? `${rooms.find(r => r.name === roomFilter)?.icon || '📍'} ${roomFilter}` : 'Inventory'}
           </h2>
-          <p className="text-surface-muted text-sm mt-1">{items.length} item{items.length === 1 ? '' : 's'}{roomFilter ? ' in this room' : ' tracked'}</p>
+          <p className="text-surface-muted text-sm mt-1">
+            {items.length} item{items.length === 1 ? '' : 's'}
+            {roomFilter === '__none__' ? ' without a location' : roomFilter ? ' in this room' : ' tracked'}
+          </p>
         </div>
         <button onClick={() => setEditItem(null)}
           className="flex items-center gap-2 bg-accent hover:bg-accent-hover text-white text-sm font-medium px-4 py-2 rounded-lg transition-all shadow-glow">
@@ -96,6 +101,10 @@ export default function Inventory() {
             <span>{r.icon || '📍'}</span> {r.name}
           </button>
         ))}
+        <button className={chip(roomFilter === '__none__')}
+          onClick={() => setRoomFilter(roomFilter === '__none__' ? '' : '__none__')}>
+          <span>📭</span> No location
+        </button>
       </div>
 
       {/* Category chips */}

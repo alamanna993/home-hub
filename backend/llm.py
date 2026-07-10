@@ -16,7 +16,8 @@ Available actions:
 - low_stock: user wants to see what's running low
 - suggest_recipes: user asks what they can cook/make/eat with what they have (e.g. "what can I make tonight?")
 - add_event: user wants to put something on the calendar (set "item" to the event title, "datetime" to ISO 8601 resolved from today's date)
-- complete_chore: user says a chore is done (set "item" to the chore name, "person" to who did it if mentioned)
+- add_chore: user wants to CREATE a new chore/recurring task (set "item" to the chore title, "person" to the assignee if mentioned, "frequency" to once|daily|weekly|monthly)
+- complete_chore: user says an existing chore is DONE (set "item" to the chore name, "person" to who did it if mentioned)
 - unknown: cannot determine intent (questions/chit-chat go here)
 
 Respond ONLY with valid JSON in this format (always a top-level "actions" array, even for one action):
@@ -35,6 +36,7 @@ Respond ONLY with valid JSON in this format (always a top-level "actions" array,
       "expires": null,
       "datetime": null,
       "person": null,
+      "frequency": null,
       "confidence": 0.95
     }}
   ]
@@ -61,19 +63,23 @@ Examples (each -> the "actions" array):
 - "what can I make for dinner tonight?" -> [{{"action": "suggest_recipes", ...}}]
 - "add dentist appointment friday at 2pm" -> [{{"action": "add_event", "item": "Dentist appointment", "datetime": "{friday}T14:00:00", ...}}]
 - "put soccer practice on the calendar for tomorrow 5:30" -> [{{"action": "add_event", "item": "Soccer practice", "datetime": "{tomorrow}T17:30:00", ...}}]
+- "add a chore for Emma to water the plants every day" -> [{{"action": "add_chore", "item": "Water the plants", "person": "Emma", "frequency": "daily", ...}}]
+- "new chore: take out the recycling weekly" -> [{{"action": "add_chore", "item": "Take out the recycling", "frequency": "weekly", ...}}]
 - "I took out the trash" -> [{{"action": "complete_chore", "item": "trash", ...}}]
 - "Emma finished feeding the dog" -> [{{"action": "complete_chore", "item": "feeding the dog", "person": "Emma", ...}}]
 - "how are you?" / "what's on the calendar this week?" -> [{{"action": "unknown", ...}}]
 """
 
 
-def get_system_prompt(locations: list[str] | None = None) -> str:
+def get_system_prompt(locations: list[str] | None = None, family: list[str] | None = None) -> str:
     from datetime import date, timedelta
     today = date.today()
     friday = today + timedelta(days=((4 - today.weekday()) % 7) or 7)
     locations_section = ""
     if locations:
-        locations_section = "\nKnown storage locations in this home: " + ", ".join(locations) + ".\n"
+        locations_section += "\nKnown storage locations in this home: " + ", ".join(locations) + ".\n"
+    if family:
+        locations_section += "Family members (use for \"person\"): " + ", ".join(family) + ".\n"
     return SYSTEM_PROMPT_TEMPLATE.format(
         today=today.isoformat(),
         weekday=today.strftime("%A"),
@@ -205,6 +211,16 @@ def _known_locations(db) -> list[str]:
         return []
 
 
+def _known_family(db) -> list[str]:
+    if db is None:
+        return []
+    try:
+        from models import FamilyMember
+        return [m.name for m in db.query(FamilyMember).order_by(FamilyMember.name).all()][:20]
+    except Exception:
+        return []
+
+
 async def parse_message(user_message: str, db=None) -> list[dict]:
     """Parse a chat message into one or more action dicts."""
     try:
@@ -213,7 +229,7 @@ async def parse_message(user_message: str, db=None) -> list[dict]:
         if provider in ("", "none"):
             return _keyword_parse(user_message)
 
-        system_prompt = get_system_prompt(locations=_known_locations(db))
+        system_prompt = get_system_prompt(locations=_known_locations(db), family=_known_family(db))
 
         if provider == "claude":
             api_key = _db_setting(db, "anthropic_api_key", env_settings.anthropic_api_key)

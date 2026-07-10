@@ -353,6 +353,10 @@ async def handle_action(parsed: dict, req: ChatRequest, db: Session) -> dict:
             if not parsed.get("suggested_location"):
                 parsed["suggested_location"] = loc_name
             loc_name = None
+        # ...and the reverse: a "suggestion" the user actually named is explicit
+        suggested = parsed.get("suggested_location")
+        if not loc_name and suggested and suggested.lower() in req.message.lower():
+            loc_name = suggested
         loc_id = find_or_create_location(loc_name, parsed.get("sublocation"), db)
         cat_id = find_or_create_category(parsed.get("category"), db)
         expires = None
@@ -492,6 +496,29 @@ async def handle_action(parsed: dict, req: ChatRequest, db: Session) -> dict:
         pushed = await msgraph.push_create(db, event)
         when = start.strftime("%A %b %d") + ("" if all_day else start.strftime(" at %H:%M"))
         reply = f"🗓️ Added **{item_name}** to the calendar for {when}." + (" (synced to Outlook ✓)" if pushed else "")
+        return {"reply": reply, "action": action, "parsed": parsed}
+
+    elif action == "add_chore" and item_name:
+        from models import Chore, FamilyMember
+        from routers.chores import FREQUENCIES
+        title = item_name.strip()
+        title = title[0].upper() + title[1:] if title else title
+        existing = db.query(Chore).filter(Chore.title.ilike(title)).first()
+        if existing:
+            reply = f"👀 There's already a chore called **{existing.title}** on the chart."
+            return {"reply": reply, "action": action, "parsed": parsed}
+        freq = (parsed.get("frequency") or "weekly").lower()
+        if freq not in FREQUENCIES:
+            freq = "weekly"
+        person = (parsed.get("person") or "").strip() or None
+        if person:  # canonicalize to a known family member's spelling when possible
+            member = db.query(FamilyMember).filter(FamilyMember.name.ilike(f"%{person}%")).first()
+            if member:
+                person = member.name
+        chore = Chore(title=title, assigned_to=person, frequency=freq)
+        db.add(chore)
+        db.commit()
+        reply = f"🧹 Added chore **{title}** ({freq}" + (f", assigned to {person}" if person else "") + ")."
         return {"reply": reply, "action": action, "parsed": parsed}
 
     elif action == "complete_chore" and item_name:

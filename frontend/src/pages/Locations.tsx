@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Plus, MapPin, Trash2, Pencil, Check, X } from 'lucide-react'
-import { getLocations, createLocation, updateLocation, Location } from '../lib/api'
+import { Plus, MapPin, Trash2, Pencil, Check, X, Inbox } from 'lucide-react'
+import { getLocations, createLocation, updateLocation, getItems, Location } from '../lib/api'
 import EmojiPicker from '../components/EmojiPicker'
 import axios from 'axios'
 import toast from 'react-hot-toast'
@@ -13,8 +14,12 @@ export default function Locations() {
   const [adding, setAdding] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editForm, setEditForm] = useState({ name: '', sublocation: '', icon: '' })
+  const [unlocatedCount, setUnlocatedCount] = useState(0)
 
-  const load = () => getLocations().then(setLocations)
+  const load = () => {
+    getLocations().then(setLocations)
+    getItems({ unlocated: true }).then(items => setUnlocatedCount(items.length))
+  }
   useEffect(() => { load() }, [])
 
   async function add() {
@@ -62,6 +67,21 @@ export default function Locations() {
           <Plus size={15} /> Add
         </button>
       </div>
+
+      {unlocatedCount > 0 && (
+        <Link to="/inventory?location=__none__"
+          className="flex items-center gap-3 bg-surface-card border border-orange-500/40 rounded-2xl p-4 shadow-card hover:border-orange-400 transition-all">
+          <div className="w-10 h-10 rounded-xl bg-orange-500/10 flex items-center justify-center flex-shrink-0">
+            <Inbox size={18} className="text-orange-400" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-white font-medium text-sm">No location assigned</p>
+            <p className="text-surface-muted text-xs mt-0.5">
+              {unlocatedCount} item{unlocatedCount === 1 ? '' : 's'} waiting to be filed — tap to view
+            </p>
+          </div>
+        </Link>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
         {locations.map((loc, i) => (
