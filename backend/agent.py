@@ -94,11 +94,39 @@ def _loc_str(loc) -> str:
     return loc.name + (f" / {loc.sublocation}" if loc.sublocation else "")
 
 
+_TOOL_SPECS = {t["function"]["name"]: t["function"]["parameters"] for t in TOOLS}
+
+
+def _normalize_args(tool_name: str, args: dict) -> dict | str:
+    """Small models invent argument names ('current_location_name' for 'name').
+    Map stray keys onto the tool's declared parameters; report anything still missing."""
+    spec = _TOOL_SPECS.get(tool_name)
+    if spec is None or not isinstance(args, dict):
+        return args if isinstance(args, dict) else {}
+    props = spec["properties"]
+    normalized = {k: v for k, v in args.items() if k in props}
+    for key, value in args.items():
+        if key in props:
+            continue
+        kl = key.lower()
+        match = next((p for p in props if p not in normalized and (p in kl or kl in p)), None)
+        if match:
+            normalized[match] = value
+    missing = [p for p in spec.get("required", []) if normalized.get(p) in (None, "")]
+    if missing:
+        return f"Missing required argument(s) for {tool_name}: {', '.join(missing)}. Retry with them set."
+    return normalized
+
+
 async def execute_tool(name: str, args: dict, db, source: str) -> dict | list | str:
     from models import (Item, Location, Category, FamilyMember, CalendarEvent,
                         MealPlan, Chore, AuditLog)
     import msgraph
     from routers.chat import find_or_create_location
+
+    args = _normalize_args(name, args)
+    if isinstance(args, str):  # missing-argument message for the model
+        return args
 
     try:
         if name == "find_items":
