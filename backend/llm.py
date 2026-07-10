@@ -32,7 +32,11 @@ Respond ONLY with valid JSON in this format (always a top-level "actions" array,
       "category": null,
       "quantity": null,
       "unit": null,
+      "author": null,
+      "description": null,
       "notes": null,
+      "low_stock_threshold": null,
+      "track_stock": null,
       "expires": null,
       "datetime": null,
       "person": null,
@@ -43,6 +47,12 @@ Respond ONLY with valid JSON in this format (always a top-level "actions" array,
 }}
 
 For food items with a mentioned expiration/use-by date, set "expires" to the ISO date (YYYY-MM-DD) resolved from today's date.
+
+Enrichment rules for add_item — fill out everything you can, the user shouldn't have to:
+- ALWAYS set "category" to the best fit — prefer the known categories above, otherwise propose a sensible new one.
+- Books, music, movies, games: set "author" to the author/artist/creator. Use your own knowledge when the user didn't say (e.g. The Hobbit -> J.R.R. Tolkien).
+- Set "low_stock_threshold" (and "track_stock": true) when the user wants a restock warning ("warn me when we're down to 2").
+- Put extra details the user gives into "description" or "notes".
 
 Location rules for add_item:
 - Set "location" ONLY when the user explicitly says where the item is or goes. Never guess into "location".
@@ -55,7 +65,10 @@ Examples (each -> the "actions" array):
 - "we're out of milk" -> [{{"action": "update_item", "item": "milk", "quantity": 0, ...}}]
 - "just bought 2 gallons of milk" -> [{{"action": "add_item", "item": "milk", "quantity": 2, "unit": "gallons", ...}}]
 - "bought milk, 2 dozen eggs, bread, and chicken for the freezer" -> [{{"action": "add_item", "item": "milk", "suggested_location": "Fridge", ...}}, {{"action": "add_item", "item": "eggs", "quantity": 2, "unit": "dozen", "suggested_location": "Fridge", ...}}, {{"action": "add_item", "item": "bread", "suggested_location": "Pantry", ...}}, {{"action": "add_item", "item": "chicken", "location": "freezer", ...}}]
-- "picked up AA batteries" -> [{{"action": "add_item", "item": "AA batteries", "suggested_location": "Garage", ...}}]
+- "picked up AA batteries" -> [{{"action": "add_item", "item": "AA batteries", "suggested_location": "Garage", "category": "Electronics", ...}}]
+- "added the hobbit to the bookshelf" -> [{{"action": "add_item", "item": "The Hobbit", "author": "J.R.R. Tolkien", "category": "Books / Media", "location": "bookshelf", ...}}]
+- "got abbey road on vinyl for the living room" -> [{{"action": "add_item", "item": "Abbey Road (vinyl)", "author": "The Beatles", "category": "Books / Media", "location": "living room", ...}}]
+- "bought a 12 pack of paper towels, warn me when we're down to 3" -> [{{"action": "add_item", "item": "paper towels", "quantity": 12, "category": "Cleaning", "low_stock_threshold": 3, "track_stock": true, ...}}]
 - "added chicken to the fridge, use by friday, and we're out of ketchup" -> [{{"action": "add_item", "item": "chicken", "location": "fridge", "expires": "{friday}", ...}}, {{"action": "update_item", "item": "ketchup", "quantity": 0, ...}}]
 - "moved the drill to the garage" -> [{{"action": "update_item", "item": "drill", "location": "garage", ...}}]
 - "throw out the broken toaster" -> [{{"action": "remove_item", "item": "toaster", ...}}]
@@ -73,13 +86,16 @@ Examples (each -> the "actions" array):
 """
 
 
-def get_system_prompt(locations: list[str] | None = None, family: list[str] | None = None) -> str:
+def get_system_prompt(locations: list[str] | None = None, family: list[str] | None = None,
+                      categories: list[str] | None = None) -> str:
     from datetime import date, timedelta
     today = date.today()
     friday = today + timedelta(days=((4 - today.weekday()) % 7) or 7)
     locations_section = ""
     if locations:
         locations_section += "\nKnown storage locations in this home: " + ", ".join(locations) + ".\n"
+    if categories:
+        locations_section += "Known item categories: " + ", ".join(categories) + ".\n"
     if family:
         locations_section += "Family members (use for \"person\"): " + ", ".join(family) + ".\n"
     return SYSTEM_PROMPT_TEMPLATE.format(
@@ -223,6 +239,16 @@ def _known_family(db) -> list[str]:
         return []
 
 
+def _known_categories(db) -> list[str]:
+    if db is None:
+        return []
+    try:
+        from models import Category
+        return [c.name for c in db.query(Category).order_by(Category.name).all()][:15]
+    except Exception:
+        return []
+
+
 async def parse_message(user_message: str, db=None) -> list[dict]:
     """Parse a chat message into one or more action dicts."""
     try:
@@ -231,7 +257,8 @@ async def parse_message(user_message: str, db=None) -> list[dict]:
         if provider in ("", "none"):
             return _keyword_parse(user_message)
 
-        system_prompt = get_system_prompt(locations=_known_locations(db), family=_known_family(db))
+        system_prompt = get_system_prompt(locations=_known_locations(db), family=_known_family(db),
+                                          categories=_known_categories(db))
 
         if provider == "claude":
             api_key = _db_setting(db, "anthropic_api_key", env_settings.anthropic_api_key)

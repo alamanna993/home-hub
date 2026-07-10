@@ -39,9 +39,10 @@ TOOLS = [
     # --- inventory ---
     _tool("find_items", "Search inventory items by name. Returns matches with id, quantity and location.",
           {"search": _S("part of the item name")}, ["search"]),
-    _tool("update_item", "Update an inventory item found by name: quantity, location, notes, or expiration date. Only pass fields to change.",
+    _tool("update_item", "Update an inventory item found by name: quantity, location, category, author/artist, notes, or expiration date. Only pass fields to change.",
           {"name": _S("item name to find"), "quantity": {"type": "number", "description": "new quantity"},
            "location": _S("new location name"), "sublocation": _S("new sub-location"),
+           "category": _S("category name"), "author": _S("author/artist/creator for books & media"),
            "notes": _S("new notes"), "expiration_date": _S("YYYY-MM-DD")}, ["name"]),
     _tool("delete_item", "Mark an inventory item as gone (quantity 0, kept on the list for restocking).",
           {"name": _S("item name to find")}, ["name"]),
@@ -146,6 +147,12 @@ async def execute_tool(name: str, args: dict, db, source: str) -> dict | list | 
                 changes.append(f"moved to {args['location']}")
             if args.get("notes"):
                 item.notes = args["notes"]; changes.append("notes updated")
+            if args.get("author"):
+                item.author = args["author"]; changes.append(f"author → {item.author}")
+            if args.get("category"):
+                from routers.chat import find_or_create_category
+                item.category_id = find_or_create_category(args["category"], db)
+                changes.append(f"category → {args['category']}")
             if args.get("expiration_date"):
                 try:
                     item.expiration_date = date.fromisoformat(args["expiration_date"][:10])

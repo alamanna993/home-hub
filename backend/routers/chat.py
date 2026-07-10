@@ -376,19 +376,33 @@ async def handle_action(parsed: dict, req: ChatRequest, db: Session) -> dict:
                 expires = date.fromisoformat(str(parsed["expires"])[:10])
             except ValueError:
                 pass  # model produced a non-ISO date — skip rather than fail the add
+        # Models like to invent stock tracking — only honor it when the user asked for it.
+        wants_tracking = re.search(r"warn|alert|remind|notify|low|down to|running out|restock|track", req.message, re.I)
+        threshold = parsed.get("low_stock_threshold") if wants_tracking else None
         data = ItemCreate(
             name=item_name.title(),
+            description=parsed.get("description"),
             quantity=parsed.get("quantity", 1),
             unit=parsed.get("unit"),
+            author=parsed.get("author"),
+            track_stock=True if threshold is not None else (parsed.get("track_stock") if wants_tracking else None),
+            low_stock_threshold=threshold,
             location_id=loc_id,
             category_id=cat_id,
             notes=parsed.get("notes"),
             expiration_date=expires,
         )
         result = create_item(data, source=req.source, db=db)
-        reply = f"✅ Added **{result['name']}** (qty: {result['quantity'] or 1}) to {result['location']['name'] if result.get('location') else 'inventory'}."
+        reply = f"✅ Added **{result['name']}**"
+        if result.get("author"):
+            reply += f" by {result['author']}"
+        reply += f" (qty: {result['quantity'] or 1}) to {result['location']['name'] if result.get('location') else 'inventory'}."
+        if result.get("category"):
+            reply += f" {result['category'].get('icon') or '🏷️'} {result['category']['name']}."
         if expires:
             reply += f" Expires {expires.strftime('%b %d')}."
+        if threshold is not None:
+            reply += f" I'll warn you at ≤{threshold:g}."
         out = {"reply": reply, "action": action, "item": result}
         if not loc_id:
             suggestion = parsed.get("suggested_location")
@@ -414,6 +428,26 @@ async def handle_action(parsed: dict, req: ChatRequest, db: Session) -> dict:
             if parsed.get("notes"):
                 item.notes = parsed["notes"]
                 changes.append("notes updated")
+            if parsed.get("author"):
+                item.author = parsed["author"]
+                changes.append(f"author → {item.author}")
+            if parsed.get("category"):
+                cat_id = find_or_create_category(parsed["category"], db)
+                if cat_id:
+                    item.category_id = cat_id
+                    changes.append(f"category → {parsed['category']}")
+            if parsed.get("low_stock_threshold") is not None \
+                    and re.search(r"warn|alert|remind|notify|low|down to|running out|restock|track", req.message, re.I):
+                item.low_stock_threshold = parsed["low_stock_threshold"]
+                item.track_stock = True
+                changes.append(f"low-stock alert ≤{item.low_stock_threshold:g}")
+            if parsed.get("expires"):
+                from datetime import date as _date
+                try:
+                    item.expiration_date = _date.fromisoformat(str(parsed["expires"])[:10])
+                    changes.append(f"expires {item.expiration_date.isoformat()}")
+                except ValueError:
+                    pass
             db.add(AuditLog(action="updated", item_name=item.name, changed_by=req.source, details="; ".join(changes) or "no changes"))
             db.commit()
             if changes:
