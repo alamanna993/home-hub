@@ -52,16 +52,19 @@ def seed_defaults(db: Session):
         {"name": "Kitchen", "sublocation": "Freezer"},
         {"name": "Garage", "sublocation": None},
         {"name": "Living Room", "sublocation": None},
-        {"name": "Office / Server Room", "sublocation": None},
         {"name": "Basement", "sublocation": None},
         {"name": "Bedroom", "sublocation": None},
     ]
-    for cat_data in default_categories:
-        if not db.query(Category).filter_by(name=cat_data["name"]).first():
-            db.add(Category(**cat_data))
-    for loc_data in default_locations:
-        if not db.query(Location).filter_by(name=loc_data["name"], sublocation=loc_data["sublocation"]).first():
-            db.add(Location(**loc_data))
+    # Seed starter categories/locations ONCE (fresh install only) — re-seeding on
+    # every boot resurrects defaults the user deliberately deleted.
+    if not db.query(Setting).filter_by(key="defaults_seeded").first():
+        is_fresh = db.query(Location).count() == 0 and db.query(Category).count() == 0
+        if is_fresh:
+            for cat_data in default_categories:
+                db.add(Category(**cat_data))
+            for loc_data in default_locations:
+                db.add(Location(**loc_data))
+        db.add(Setting(key="defaults_seeded", value="true"))
 
     if not db.query(User).filter_by(username="admin").first():
         db.add(User(username="admin", hashed_password=hash_password(app_settings.default_admin_password)))
