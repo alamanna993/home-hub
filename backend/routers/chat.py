@@ -421,7 +421,10 @@ async def handle_action(parsed: dict, req: ChatRequest, db: Session) -> dict:
             else:
                 reply = f"🤔 Found **{item.name}** but I'm not sure what to change about it."
         else:
-            reply = f"❌ Couldn't find **{item_name}** to update."
+            # No such inventory item — often a misfiled request about a location,
+            # chore, event, etc.; the caller can hand it to the tool agent.
+            return {"reply": f"❌ Couldn't find **{item_name}** to update.",
+                    "action": action, "parsed": parsed, "_miss": True}
         return {"reply": reply, "action": action, "parsed": parsed}
 
     elif action == "remove_item" and item_name:
@@ -434,7 +437,8 @@ async def handle_action(parsed: dict, req: ChatRequest, db: Session) -> dict:
             db.commit()
             reply = f"🗑️ Marked **{item.name}** as gone (qty 0) — it stays on the list so you remember to restock. Delete it for good from the Inventory page."
         else:
-            reply = f"❌ Couldn't find **{item_name}** to remove."
+            return {"reply": f"❌ Couldn't find **{item_name}** to remove.",
+                    "action": action, "parsed": parsed, "_miss": True}
         return {"reply": reply, "action": action, "parsed": parsed}
 
     elif action == "low_stock":
@@ -582,6 +586,9 @@ async def chat(req: ChatRequest, db: Session = Depends(get_db)):
                 and not parsed.get("no_ai"):
             return await conversational_reply(req, db, parsed)
         result = await handle_action(parsed, req, db)
+        if result.pop("_miss", None) and not parsed.get("no_ai"):
+            # The named thing isn't an inventory item — let the tool agent figure it out.
+            return await conversational_reply(req, db, parsed)
         needs = result.pop("_needs_location", None)
         if needs:
             question, payload = make_pending(req.source, [needs], db)
@@ -596,6 +603,7 @@ async def chat(req: ChatRequest, db: Session = Depends(get_db)):
             skipped += 1
             continue
         result = await handle_action(parsed, req, db)
+        result.pop("_miss", None)  # in a batch, keep the not-found line as-is
         needs = result.pop("_needs_location", None)
         if needs:
             needs_location.append(needs)
