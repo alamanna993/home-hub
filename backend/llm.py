@@ -2,9 +2,11 @@ import json
 import httpx
 from database import settings as env_settings
 
-SYSTEM_PROMPT_TEMPLATE = """You are a home assistant. Parse the user's message and return a JSON action.
+SYSTEM_PROMPT_TEMPLATE = """You are a home assistant. Parse the user's message into JSON actions.
 Today is {today} ({weekday}).
 
+A single message may contain SEVERAL items or requests (e.g. a shopping list). Return one action per item/request, in the order mentioned.
+{locations_section}
 Available actions:
 - find_item: user wants to know where something is or if they have it
 - add_item: user is adding a new item
@@ -17,51 +19,67 @@ Available actions:
 - complete_chore: user says a chore is done (set "item" to the chore name, "person" to who did it if mentioned)
 - unknown: cannot determine intent (questions/chit-chat go here)
 
-Respond ONLY with valid JSON in this format:
+Respond ONLY with valid JSON in this format (always a top-level "actions" array, even for one action):
 {{
-  "action": "find_item",
-  "item": "milk",
-  "location": null,
-  "sublocation": null,
-  "category": null,
-  "quantity": null,
-  "unit": null,
-  "notes": null,
-  "expires": null,
-  "datetime": null,
-  "person": null,
-  "confidence": 0.95
+  "actions": [
+    {{
+      "action": "find_item",
+      "item": "milk",
+      "location": null,
+      "suggested_location": null,
+      "sublocation": null,
+      "category": null,
+      "quantity": null,
+      "unit": null,
+      "notes": null,
+      "expires": null,
+      "datetime": null,
+      "person": null,
+      "confidence": 0.95
+    }}
+  ]
 }}
 
 For food items with a mentioned expiration/use-by date, set "expires" to the ISO date (YYYY-MM-DD) resolved from today's date.
 
-Examples:
-- "where is my drill?" -> {{"action": "find_item", "item": "drill", ...}}
-- "added 2 boxes of pasta to pantry shelf 1" -> {{"action": "add_item", "item": "pasta", "location": "pantry", "sublocation": "shelf 1", "quantity": 2, "unit": "boxes", ...}}
-- "we're out of milk" -> {{"action": "update_item", "item": "milk", "quantity": 0, ...}}
-- "just bought 2 gallons of milk" -> {{"action": "add_item", "item": "milk", "quantity": 2, "unit": "gallons", ...}}
-- "added chicken to the fridge, use by friday" -> {{"action": "add_item", "item": "chicken", "location": "fridge", "expires": "{friday}", ...}}
-- "moved the drill to the garage" -> {{"action": "update_item", "item": "drill", "location": "garage", ...}}
-- "throw out the broken toaster" -> {{"action": "remove_item", "item": "toaster", ...}}
-- "what's running low?" -> {{"action": "low_stock", ...}}
-- "what can I make for dinner tonight?" -> {{"action": "suggest_recipes", ...}}
-- "add dentist appointment friday at 2pm" -> {{"action": "add_event", "item": "Dentist appointment", "datetime": "{friday}T14:00:00", ...}}
-- "put soccer practice on the calendar for tomorrow 5:30" -> {{"action": "add_event", "item": "Soccer practice", "datetime": "{tomorrow}T17:30:00", ...}}
-- "I took out the trash" -> {{"action": "complete_chore", "item": "trash", ...}}
-- "Emma finished feeding the dog" -> {{"action": "complete_chore", "item": "feeding the dog", "person": "Emma", ...}}
-- "how are you?" / "what's on the calendar this week?" -> {{"action": "unknown", ...}}
+Location rules for add_item:
+- Set "location" ONLY when the user explicitly says where the item is or goes. Never guess into "location".
+- A location mentioned once in a list ("... for the freezer") applies only to the item(s) it clearly refers to.
+- When the user did NOT say where, set "suggested_location" to where that kind of item is usually stored — prefer one of the known locations above; otherwise propose a sensible new name (e.g. "Fridge" for milk, "Garage" for tools).
+
+Examples (each -> the "actions" array):
+- "where is my drill?" -> [{{"action": "find_item", "item": "drill", ...}}]
+- "added 2 boxes of pasta to pantry shelf 1" -> [{{"action": "add_item", "item": "pasta", "location": "pantry", "sublocation": "shelf 1", "quantity": 2, "unit": "boxes", ...}}]
+- "we're out of milk" -> [{{"action": "update_item", "item": "milk", "quantity": 0, ...}}]
+- "just bought 2 gallons of milk" -> [{{"action": "add_item", "item": "milk", "quantity": 2, "unit": "gallons", ...}}]
+- "bought milk, 2 dozen eggs, bread, and chicken for the freezer" -> [{{"action": "add_item", "item": "milk", "suggested_location": "Fridge", ...}}, {{"action": "add_item", "item": "eggs", "quantity": 2, "unit": "dozen", "suggested_location": "Fridge", ...}}, {{"action": "add_item", "item": "bread", "suggested_location": "Pantry", ...}}, {{"action": "add_item", "item": "chicken", "location": "freezer", ...}}]
+- "picked up AA batteries" -> [{{"action": "add_item", "item": "AA batteries", "suggested_location": "Garage", ...}}]
+- "added chicken to the fridge, use by friday, and we're out of ketchup" -> [{{"action": "add_item", "item": "chicken", "location": "fridge", "expires": "{friday}", ...}}, {{"action": "update_item", "item": "ketchup", "quantity": 0, ...}}]
+- "moved the drill to the garage" -> [{{"action": "update_item", "item": "drill", "location": "garage", ...}}]
+- "throw out the broken toaster" -> [{{"action": "remove_item", "item": "toaster", ...}}]
+- "what's running low?" -> [{{"action": "low_stock", ...}}]
+- "what can I make for dinner tonight?" -> [{{"action": "suggest_recipes", ...}}]
+- "add dentist appointment friday at 2pm" -> [{{"action": "add_event", "item": "Dentist appointment", "datetime": "{friday}T14:00:00", ...}}]
+- "put soccer practice on the calendar for tomorrow 5:30" -> [{{"action": "add_event", "item": "Soccer practice", "datetime": "{tomorrow}T17:30:00", ...}}]
+- "I took out the trash" -> [{{"action": "complete_chore", "item": "trash", ...}}]
+- "Emma finished feeding the dog" -> [{{"action": "complete_chore", "item": "feeding the dog", "person": "Emma", ...}}]
+- "how are you?" / "what's on the calendar this week?" -> [{{"action": "unknown", ...}}]
 """
 
 
-def get_system_prompt() -> str:
+def get_system_prompt(locations: list[str] | None = None) -> str:
     from datetime import date, timedelta
     today = date.today()
     friday = today + timedelta(days=((4 - today.weekday()) % 7) or 7)
+    locations_section = ""
+    if locations:
+        locations_section = "\nKnown storage locations in this home: " + ", ".join(locations) + ".\n"
     return SYSTEM_PROMPT_TEMPLATE.format(
         today=today.isoformat(),
         weekday=today.strftime("%A"),
         friday=friday.isoformat(),
         tomorrow=(today + timedelta(days=1)).isoformat(),
+        locations_section=locations_section,
     )
 
 
@@ -73,6 +91,24 @@ def _db_setting(db, key: str, fallback: str = "") -> str:
     return (row.value or fallback) if row else fallback
 
 
+def _normalize_actions(raw) -> list[dict]:
+    """Accept whatever shape the model produced and return a list of action dicts.
+    Small local models sometimes ignore the {"actions": [...]} wrapper."""
+    if isinstance(raw, list):
+        actions = raw
+    elif isinstance(raw, dict):
+        if isinstance(raw.get("actions"), list):
+            actions = raw["actions"]
+        elif raw.get("action"):
+            actions = [raw]
+        else:
+            actions = []
+    else:
+        actions = []
+    actions = [a for a in actions if isinstance(a, dict) and a.get("action")]
+    return actions or [{"action": "unknown", "confidence": 0}]
+
+
 def _extract_json(text: str) -> dict:
     text = text.strip()
     if text.startswith("```"):
@@ -82,14 +118,14 @@ def _extract_json(text: str) -> dict:
     return json.loads(text.strip())
 
 
-async def _parse_ollama(user_message: str, host: str, model: str) -> dict:
+async def _parse_ollama(user_message: str, host: str, model: str, system_prompt: str) -> dict:
     async with httpx.AsyncClient(timeout=30.0) as client:
         r = await client.post(
             f"{host}/api/chat",
             json={
                 "model": model,
                 "messages": [
-                    {"role": "system", "content": get_system_prompt()},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_message},
                 ],
                 "stream": False,
@@ -100,7 +136,7 @@ async def _parse_ollama(user_message: str, host: str, model: str) -> dict:
         return json.loads(r.json()["message"]["content"])
 
 
-async def _parse_openai_compat(user_message: str, api_key: str, model: str, base_url: str | None = None, json_mode: bool = True) -> dict:
+async def _parse_openai_compat(user_message: str, api_key: str, model: str, system_prompt: str, base_url: str | None = None, json_mode: bool = True) -> dict:
     from openai import AsyncOpenAI
     kwargs = {"api_key": api_key}
     if base_url:
@@ -112,22 +148,22 @@ async def _parse_openai_compat(user_message: str, api_key: str, model: str, base
     response = await client.chat.completions.create(
         model=model,
         messages=[
-            {"role": "system", "content": get_system_prompt()},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message},
         ],
-        max_tokens=256,
+        max_tokens=1024,
         **extra,
     )
     return _extract_json(response.choices[0].message.content)
 
 
-async def _parse_claude(user_message: str, api_key: str, model: str) -> dict:
+async def _parse_claude(user_message: str, api_key: str, model: str, system_prompt: str) -> dict:
     from anthropic import AsyncAnthropic
     client = AsyncAnthropic(api_key=api_key)
     response = await client.messages.create(
         model=model,
-        max_tokens=256,
-        system=get_system_prompt(),
+        max_tokens=1024,
+        system=system_prompt,
         messages=[{"role": "user", "content": user_message}],
     )
     return _extract_json(response.content[0].text)
@@ -137,7 +173,7 @@ NO_AI_NOTICE = ("No AI model is configured yet — set one up in Settings → AI
                 "Simple lookups still work: try 'where is <item>' or 'what's running low'.")
 
 
-def _keyword_parse(message: str) -> dict:
+def _keyword_parse(message: str) -> list[dict]:
     """Best-effort intent guess with no LLM, so the app stays useful before AI setup."""
     import re
     text = message.lower().strip().rstrip("?.!")
@@ -145,44 +181,64 @@ def _keyword_parse(message: str) -> dict:
             "category": None, "quantity": None, "unit": None, "notes": None, "expires": None, "confidence": 0.3}
 
     if re.search(r"\b(low|running out|restock|out of stock)\b", text):
-        return {**base, "action": "low_stock"}
+        return [{**base, "action": "low_stock"}]
 
     m = re.match(r"(?:where(?:'s| is| are)?|find|do we have|do i have|got any)\s+(?:my |the |any )?(.+)", text)
     if m:
-        return {**base, "action": "find_item", "item": m.group(1).strip()}
+        return [{**base, "action": "find_item", "item": m.group(1).strip()}]
 
-    return {**base, "no_ai": True}
+    return [{**base, "no_ai": True}]
 
 
-async def parse_message(user_message: str, db=None) -> dict:
+def _known_locations(db) -> list[str]:
+    if db is None:
+        return []
+    try:
+        from models import Location
+        seen, names = set(), []
+        for loc in db.query(Location).order_by(Location.name).all():
+            if loc.name.lower() not in seen:
+                seen.add(loc.name.lower())
+                names.append(loc.name)
+        return names[:20]
+    except Exception:
+        return []
+
+
+async def parse_message(user_message: str, db=None) -> list[dict]:
+    """Parse a chat message into one or more action dicts."""
     try:
         provider = _db_setting(db, "llm_provider", env_settings.llm_provider)
 
         if provider in ("", "none"):
             return _keyword_parse(user_message)
 
+        system_prompt = get_system_prompt(locations=_known_locations(db))
+
         if provider == "claude":
             api_key = _db_setting(db, "anthropic_api_key", env_settings.anthropic_api_key)
             model = _db_setting(db, "claude_model", env_settings.claude_model) or "claude-haiku-4-5-20251001"
-            return await _parse_claude(user_message, api_key, model)
+            raw = await _parse_claude(user_message, api_key, model, system_prompt)
 
         elif provider == "openai":
             api_key = _db_setting(db, "openai_api_key", env_settings.openai_api_key)
             model = _db_setting(db, "openai_model", env_settings.openai_model) or "gpt-4o-mini"
-            return await _parse_openai_compat(user_message, api_key, model)
+            raw = await _parse_openai_compat(user_message, api_key, model, system_prompt)
 
         elif provider == "lmstudio":
             host = _db_setting(db, "lmstudio_host", env_settings.lmstudio_host)
             model = _db_setting(db, "lmstudio_model", env_settings.lmstudio_model) or "local-model"
-            return await _parse_openai_compat(user_message, "lm-studio", model, base_url=f"{host}/v1", json_mode=False)
+            raw = await _parse_openai_compat(user_message, "lm-studio", model, system_prompt, base_url=f"{host}/v1", json_mode=False)
 
         else:  # ollama
             host = _db_setting(db, "ollama_host", env_settings.ollama_host)
             model = _db_setting(db, "ollama_model", env_settings.ollama_model)
-            return await _parse_ollama(user_message, host, model)
+            raw = await _parse_ollama(user_message, host, model, system_prompt)
+
+        return _normalize_actions(raw)
 
     except Exception as e:
-        return {"action": "unknown", "error": str(e), "confidence": 0}
+        return [{"action": "unknown", "error": str(e), "confidence": 0}]
 
 
 async def generate_response(prompt: str, context: str = "", db=None) -> str:

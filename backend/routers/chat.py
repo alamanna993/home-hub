@@ -1,4 +1,8 @@
-from fastapi import APIRouter, Depends
+import re
+import time
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from database import get_db
@@ -165,18 +169,165 @@ async def conversational_reply(req: "ChatRequest", db: Session, parsed: dict) ->
     return {"reply": reply, "action": "chat", "parsed": parsed}
 
 
-@router.post("/")
-async def chat(req: ChatRequest, db: Session = Depends(get_db)):
-    import re
-    parsed = await parse_message(req.message, db)
+# ---------------------------------------------------------------------------
+# Pending clarifications ("where should I put that?") — one live question per
+# chat source, kept in memory. A lost pending just leaves items location-less.
+# ---------------------------------------------------------------------------
+PENDING: dict[str, dict] = {}
+PENDING_TTL_SECONDS = 600
+MAX_ACTIONS_PER_MESSAGE = 15
+
+INTENT_WORDS = re.compile(
+    r"\b(add|added|bought|buy|remove|removed|delete|throw|move|moved|where|what|when|find|"
+    r"out of|running low|used up|done|finished|calendar|schedule|appointment)\b", re.I)
+
+
+def get_pending(source: str) -> dict | None:
+    p = PENDING.get(source)
+    if p and time.time() - p["created"] > PENDING_TTL_SECONDS:
+        PENDING.pop(source, None)
+        return None
+    return p
+
+
+def location_options(db: Session) -> list[str]:
+    seen, options = set(), []
+    for loc in db.query(Location).order_by(Location.name).all():
+        if loc.name.lower() not in seen:
+            seen.add(loc.name.lower())
+            options.append(loc.name)
+        if len(options) >= 8:
+            break
+    return options
+
+
+CONFIRM_OPTIONS = ["✅ Yes — file them", "❌ No — I'll say where"]
+
+
+def make_pending(source: str, needs: list[dict], db: Session) -> tuple[str, dict]:
+    """Store one clarification for all location-less items; return (question, pending payload).
+
+    When the model proposed placements ("suggestion"), ask to verify them; otherwise
+    ask an open where-should-I-put-it question with the household's locations."""
+    names = [n["name"] for n in needs]
+    pid = uuid.uuid4().hex[:12]
+
+    if any(n.get("suggestion") for n in needs):
+        placements = [{"id": n["id"], "name": n["name"], "location": n.get("suggestion")} for n in needs]
+        lines = [f"**{p['name']}** → {p['location'] or '?'}" for p in placements]
+        question = "📍 I'd put: " + ", ".join(lines) + ". Look right?"
+        if any(not p["location"] for p in placements):
+            question += " (For the ? ones, tell me where.)"
+        options = list(CONFIRM_OPTIONS)
+        PENDING[source] = {
+            "id": pid, "type": "confirm", "placements": placements,
+            "item_ids": [n["id"] for n in needs], "item_names": names,
+            "options": options, "created": time.time(),
+        }
+        payload = {"id": pid, "type": "confirm", "question": question, "items": names,
+                   "options": options, "placements": [{"item": p["name"], "location": p["location"]} for p in placements]}
+        return question, payload
+
+    options = location_options(db)
+    question = f"📍 Where should I put **{', '.join(names)}**?"
+    if options:
+        question += " Tap a location or reply with one (you have: " + ", ".join(options) + ")."
+    else:
+        question += " Reply with a location and I'll create it."
+    PENDING[source] = {
+        "id": pid, "type": "location",
+        "item_ids": [n["id"] for n in needs], "item_names": names,
+        "options": options, "created": time.time(),
+    }
+    payload = {"id": pid, "type": "location", "question": question, "items": names, "options": options}
+    return question, payload
+
+
+def apply_location_to_pending(pending: dict, choice: str, source: str, db: Session) -> dict:
+    loc_id = find_or_create_location(choice, None, db)
+    names = []
+    for item_id in pending["item_ids"]:
+        item = db.query(Item).filter(Item.id == item_id).first()
+        if item:
+            item.location_id = loc_id
+            names.append(item.name)
+    db.commit()
+    loc = db.query(Location).filter(Location.id == loc_id).first()
+    loc_name = loc.name if loc else choice.title()
+    PENDING.pop(source, None)
+    reply = f"✅ Filed **{', '.join(names) or 'the items'}** under **{loc_name}**."
+    return {"reply": reply, "action": "clarified"}
+
+
+def apply_placements(pending: dict, source: str, db: Session) -> dict:
+    """User confirmed the proposed placements — file every item where the model suggested."""
+    placed, unplaced = [], []
+    for p in pending["placements"]:
+        if not p.get("location"):
+            unplaced.append(p["name"])
+            continue
+        item = db.query(Item).filter(Item.id == p["id"]).first()
+        if item:
+            item.location_id = find_or_create_location(p["location"], None, db)
+            placed.append(f"**{p['name']}** → {p['location']}")
+    db.commit()
+    PENDING.pop(source, None)
+    reply = ("✅ Filed: " + ", ".join(placed) + ".") if placed else "🤔 I had no locations to apply."
+    if unplaced:
+        reply += f"\n📍 Still unplaced: **{', '.join(unplaced)}** — say e.g. 'put {unplaced[0].lower()} in the pantry'."
+    return {"reply": reply, "action": "clarified"}
+
+
+def reject_placements(pending: dict, source: str, db: Session) -> dict:
+    """User said the proposed placements are wrong."""
+    PENDING.pop(source, None)
+    if len(pending["item_ids"]) == 1:
+        # One item — just ask the open question with location buttons
+        needs = [{"id": pending["item_ids"][0], "name": pending["item_names"][0]}]
+        question, payload = make_pending(source, needs, db)
+        return {"reply": question, "action": "ask_location", "pending": payload}
+    names = ", ".join(pending["item_names"])
+    return {"reply": f"👍 OK — tell me where each goes, e.g. 'milk in the fridge, bread in the pantry'. ({names})",
+            "action": "clarified"}
+
+
+YES_RE = re.compile(r"^(y|yes|yep|yeah|ya|sure|ok|okay|correct|right|sounds good|looks good|perfect|👍)\b", re.I)
+NO_RE = re.compile(r"^(n|no|nope|nah|wrong|incorrect)\b", re.I)
+
+
+def try_resolve_pending_text(message: str, pending: dict, source: str, db: Session) -> dict | None:
+    """Treat the next message as an answer to the open question when it looks like one."""
+    text = message.strip().rstrip(".!")
+    tl = text.lower()
+
+    if pending.get("type") == "confirm":
+        if YES_RE.match(text):
+            return apply_placements(pending, source, db)
+        if NO_RE.match(text):
+            return reject_placements(pending, source, db)
+        return None  # anything else ("put bread in the garage") parses as a normal command
+
+    if INTENT_WORDS.search(tl):  # looks like a new command ("where is my garage key?"), not an answer
+        return None
+    choice = None
+    for opt in pending.get("options", []):
+        if opt.lower() == tl or opt.lower() in tl:
+            choice = opt
+            break
+    if not choice:
+        cleaned = re.sub(r"^(put (it|them|those) )?(in |into |on )?(the )?", "", tl).strip()
+        if cleaned and len(cleaned.split()) <= 4 and not INTENT_WORDS.search(cleaned):
+            choice = cleaned
+    if not choice:
+        return None
+    return apply_location_to_pending(pending, choice, source, db)
+
+
+async def handle_action(parsed: dict, req: ChatRequest, db: Session) -> dict:
+    """Execute one parsed action and return its reply dict. An add_item without a
+    location carries a `_needs_location` marker so the caller can ask once for the batch."""
     action = parsed.get("action", "unknown")
     item_name = parsed.get("item")
-
-    # Models sometimes shove calendar/chore questions into inventory actions — reroute those.
-    if action == "list_items" and not parsed.get("category") and not parsed.get("location") \
-            and re.search(r"calendar|schedule|event|appointment|chore|meal|dinner plan", req.message, re.I) \
-            and not parsed.get("no_ai"):
-        return await conversational_reply(req, db, parsed)
 
     if action == "find_item" and item_name:
         item = find_best_item_match(item_name, db)
@@ -195,7 +346,14 @@ async def chat(req: ChatRequest, db: Session = Depends(get_db)):
     elif action == "add_item" and item_name:
         from datetime import date
         from routers.items import ItemCreate, create_item
-        loc_id = find_or_create_location(parsed.get("location"), parsed.get("sublocation"), db)
+        # Trust "location" only if the user actually said it — models like to guess.
+        # An unstated location becomes a suggestion that needs the user's OK.
+        loc_name = parsed.get("location")
+        if loc_name and loc_name.lower() not in req.message.lower():
+            if not parsed.get("suggested_location"):
+                parsed["suggested_location"] = loc_name
+            loc_name = None
+        loc_id = find_or_create_location(loc_name, parsed.get("sublocation"), db)
         cat_id = find_or_create_category(parsed.get("category"), db)
         expires = None
         if parsed.get("expires"):
@@ -216,7 +374,12 @@ async def chat(req: ChatRequest, db: Session = Depends(get_db)):
         reply = f"✅ Added **{result['name']}** (qty: {result['quantity'] or 1}) to {result['location']['name'] if result.get('location') else 'inventory'}."
         if expires:
             reply += f" Expires {expires.strftime('%b %d')}."
-        return {"reply": reply, "action": action, "item": result}
+        out = {"reply": reply, "action": action, "item": result}
+        if not loc_id:
+            suggestion = parsed.get("suggested_location")
+            out["_needs_location"] = {"id": result["id"], "name": result["name"],
+                                      "suggestion": suggestion.title() if suggestion else None}
+        return out
 
     elif action == "update_item" and item_name:
         from models import AuditLog
@@ -359,3 +522,82 @@ async def chat(req: ChatRequest, db: Session = Depends(get_db)):
             return {"reply": reply, "action": "unknown", "parsed": parsed}
         # Not an inventory/calendar/chore command — just talk, with the household as context.
         return await conversational_reply(req, db, parsed)
+
+
+@router.post("/")
+async def chat(req: ChatRequest, db: Session = Depends(get_db)):
+    # An open "where should I put that?" question — try the message as its answer first.
+    pending = get_pending(req.source)
+    if pending:
+        resolved = try_resolve_pending_text(req.message, pending, req.source, db)
+        if resolved:
+            return resolved
+        PENDING.pop(req.source, None)  # not an answer — drop the question and process normally
+
+    actions = (await parse_message(req.message, db))[:MAX_ACTIONS_PER_MESSAGE]
+
+    if len(actions) == 1:
+        parsed = actions[0]
+        # Models sometimes shove calendar/chore questions into inventory actions — reroute those.
+        if parsed.get("action") == "list_items" and not parsed.get("category") and not parsed.get("location") \
+                and re.search(r"calendar|schedule|event|appointment|chore|meal|dinner plan", req.message, re.I) \
+                and not parsed.get("no_ai"):
+            return await conversational_reply(req, db, parsed)
+        result = await handle_action(parsed, req, db)
+        needs = result.pop("_needs_location", None)
+        if needs:
+            question, payload = make_pending(req.source, [needs], db)
+            result["reply"] += "\n" + question
+            result["pending"] = payload
+        return result
+
+    # Batch: execute every understood action, answer with one summary message.
+    results, needs_location, skipped = [], [], 0
+    for parsed in actions:
+        if parsed.get("action", "unknown") == "unknown":
+            skipped += 1
+            continue
+        result = await handle_action(parsed, req, db)
+        needs = result.pop("_needs_location", None)
+        if needs:
+            needs_location.append(needs)
+        results.append(result)
+
+    if not results:  # nothing actionable — just talk, with the household as context
+        return await conversational_reply(req, db, actions[0])
+
+    lines = [r["reply"] for r in results]
+    if skipped:
+        lines.append(f"🤔 (I didn't understand {skipped} part{'s' if skipped > 1 else ''} of that.)")
+    out = {"reply": "\n".join(lines), "action": "batch", "results": results}
+    if needs_location:
+        question, payload = make_pending(req.source, needs_location, db)
+        out["reply"] += "\n" + question
+        out["pending"] = payload
+    return out
+
+
+class ClarifyRequest(BaseModel):
+    source: str
+    pending_id: str
+    choice: str | None = None
+    choice_index: int | None = None
+
+
+@router.post("/clarify")
+async def clarify(req: ClarifyRequest, db: Session = Depends(get_db)):
+    """Answer a pending location question (used by Telegram inline buttons)."""
+    pending = get_pending(req.source)
+    if not pending or pending["id"] != req.pending_id:
+        return {"reply": "⌛ That question expired — the item is saved without a location; you can set one in the app.",
+                "action": "expired"}
+    choice = req.choice
+    if choice is None and req.choice_index is not None and 0 <= req.choice_index < len(pending["options"]):
+        choice = pending["options"][req.choice_index]
+    if not choice:
+        raise HTTPException(status_code=400, detail="No location choice provided")
+    if pending.get("type") == "confirm":
+        if choice.startswith("✅") or YES_RE.match(choice):
+            return apply_placements(pending, req.source, db)
+        return reject_placements(pending, req.source, db)
+    return apply_location_to_pending(pending, choice, req.source, db)

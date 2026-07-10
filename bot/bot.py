@@ -98,7 +98,10 @@ async def on_message(message: discord.Message):
             reply = result.get("reply", "Sorry, I didn't understand that.")
             action = result.get("action")
 
-            if action == "add_item" and result.get("item"):
+            if result.get("pending"):
+                # A follow-up question ("where should I put that?") — keep the full text visible
+                await message.reply(reply)
+            elif action == "add_item" and result.get("item"):
                 embed = item_embed(result["item"])
                 await message.reply(reply.split("**")[0].strip(), embed=embed)
             elif action == "find_item" and result.get("reply", "").startswith("✅"):

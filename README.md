@@ -4,7 +4,7 @@ Self-hosted family hub: home inventory, AI chat (local or cloud), meal planning,
 
 - 📦 **Inventory** — every book, cable, and can of beans, organized by room and sub-location; browse by tappable room tiles, smart low-stock tracking (groceries/laundry auto-track, everything else opt-in); every item records the date it entered the system
 - ⏳ **Food expiration dates** — food items take an optional expiration date (the field appears automatically for food categories and kitchen locations); expired and expiring-soon items are flagged on their cards, listed on the Alerts page, and the AI knows about them when suggesting recipes
-- 💬 **AI Chat** — talks naturally, answers about the calendar/chores/inventory, and *updates the database*: "just bought 2 gallons of milk", "added chicken to the fridge, use by friday", "I took out the trash", "add karate tuesday 5:30pm" — from the web app or Telegram
+- 💬 **AI Chat** — talks naturally, answers about the calendar/chores/inventory, and *updates the database*: "just bought 2 gallons of milk", "added chicken to the fridge, use by friday", "I took out the trash", "add karate tuesday 5:30pm" — from the web app or Telegram. Handles whole shopping lists in one message and asks where to file items (with tappable location buttons on Telegram)
 - 📅 **Calendar** — month view with chores overlaid, quarter-hour event picking, 12h/24h toggle, and **true two-way Microsoft 365/Outlook sync** ([setup guide](docs/microsoft-sync.md)) plus iCal/ICS feeds in both directions for Google
 - 🍽️ **Meal Planner** — plan the week; one tap asks the AI "what can I make tonight?" from what's actually in the kitchen
 - ✅ **Chore Chart** — big kid-friendly emoji tiles per family member, cheers on completion, daily/weekly/monthly resets
@@ -119,10 +119,15 @@ calendar, meals, and chores all work without a model, and basic chat lookups lik
 
 **The bot doesn't just answer — it updates the database.** Text it from the store:
 - `just bought 2 gallons of milk` → added to inventory
+- `bought milk, 2 dozen eggs, bread, and chicken for the freezer` → whole list added in one message
 - `we're out of eggs` → quantity set to 0 (kept on the list so you restock)
 - `moved the drill to the garage` → location updated
 - `where is my drill?`, `what can I make for dinner tonight?`
 - `/stats`, `/lowstock`, `/find drill`, `/help`
+
+If you don't say where something goes, the bot **asks** — with tappable buttons for your
+existing locations (Pantry, Fridge, Garage…). Tap one or just reply with a location name;
+in the web chat and Discord, typing the location works the same way.
 
 ## Usage
 

@@ -2,9 +2,10 @@ import os
 import logging
 import httpx
 from dotenv import load_dotenv
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode, ChatAction
-from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
+from telegram.ext import (Application, CallbackQueryHandler, CommandHandler, MessageHandler,
+                          ContextTypes, filters)
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -141,6 +142,22 @@ async def find_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Error: {e}")
 
 
+def chat_source(update: Update) -> str:
+    return f"telegram:{update.effective_user.first_name if update.effective_user else 'unknown'}"
+
+
+def pending_keyboard(pending: dict) -> InlineKeyboardMarkup | None:
+    """Tappable location buttons for a 'where should I put that?' question."""
+    options = pending.get("options") or []
+    if not options:
+        return None
+    # callback_data is capped at 64 bytes — send the option index, not the name
+    buttons = [InlineKeyboardButton(opt, callback_data=f"clarify|{pending['id']}|{i}")
+               for i, opt in enumerate(options)]
+    rows = [buttons[i:i + 2] for i in range(0, len(buttons), 2)]
+    return InlineKeyboardMarkup(rows)
+
+
 async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not authorized(update) or not update.message or not update.message.text:
         return
@@ -148,17 +165,47 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         result = await call_backend("/chat/", "POST", {
             "message": update.message.text,
-            "source": f"telegram:{update.effective_user.first_name if update.effective_user else 'unknown'}",
+            "source": chat_source(update),
         })
         reply = result.get("reply", "Sorry, I didn't understand that.")
         # Backend replies use **bold** — Telegram Markdown uses *bold*
         reply = reply.replace("**", "*")
+        keyboard = pending_keyboard(result["pending"]) if result.get("pending") else None
         try:
-            await update.message.reply_text(reply, parse_mode=ParseMode.MARKDOWN)
+            await update.message.reply_text(reply, parse_mode=ParseMode.MARKDOWN, reply_markup=keyboard)
         except Exception:
-            await update.message.reply_text(reply)
+            await update.message.reply_text(reply, reply_markup=keyboard)
     except Exception as e:
         await update.message.reply_text(f"❌ Something went wrong: {e}")
+
+
+async def on_clarify_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not authorized(update):
+        return
+    query = update.callback_query
+    await query.answer()
+    try:
+        _, pending_id, index = query.data.split("|", 2)
+        result = await call_backend("/chat/clarify", "POST", {
+            "source": chat_source(update),
+            "pending_id": pending_id,
+            "choice_index": int(index),
+        })
+        reply = result.get("reply", "Done.").replace("**", "*")
+        # A "No" can come back with a fresh question (location buttons) — show it
+        keyboard = pending_keyboard(result["pending"]) if result.get("pending") else None
+        # Keep the original summary, append the outcome, swap the buttons
+        original = query.message.text if query.message else ""
+        combined = f"{original}\n{reply}" if original else reply
+        try:
+            await query.edit_message_text(combined, parse_mode=ParseMode.MARKDOWN, reply_markup=keyboard)
+        except Exception:
+            await query.edit_message_text(combined, reply_markup=keyboard)
+    except Exception as e:
+        try:
+            await query.edit_message_text(f"❌ Something went wrong: {e}")
+        except Exception:
+            pass
 
 
 def main():
@@ -194,6 +241,7 @@ def main():
     app.add_handler(CommandHandler("stats", stats_cmd))
     app.add_handler(CommandHandler("lowstock", lowstock_cmd))
     app.add_handler(CommandHandler("find", find_cmd))
+    app.add_handler(CallbackQueryHandler(on_clarify_button, pattern=r"^clarify\|"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
     logger.info("HomeHub Telegram bot starting (polling)...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
