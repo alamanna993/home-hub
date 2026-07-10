@@ -164,7 +164,18 @@ def resolve_datetime_from_text(message: str):
 
 
 async def conversational_reply(req: "ChatRequest", db: Session, parsed: dict) -> dict:
+    """Anything the fast parser can't handle: a tool-calling agent with access to the
+    whole app (edit/delete/rename items, events, chores, meals, locations, people).
+    Falls back to a plain contextual answer if the agent can't run."""
     context = await build_house_context(db)
+    try:
+        from agent import run_agent
+        reply = await run_agent(req.message, db=db, source=req.source, context=context)
+        if reply:
+            return {"reply": reply, "action": "agent", "parsed": parsed}
+    except Exception as e:
+        import logging
+        logging.getLogger("homehub-chat").warning(f"agent failed, falling back to chat: {e}")
     reply = await generate_response(req.message, context=context, db=db)
     return {"reply": reply, "action": "chat", "parsed": parsed}
 

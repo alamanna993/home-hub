@@ -11,14 +11,14 @@ Available actions:
 - find_item: user wants to know where something is or if they have it
 - add_item: user is adding a new item
 - update_item: user is updating an existing item (quantity, location, notes)
-- remove_item: user is removing/used up an item
+- remove_item: user is removing/used up a physical inventory item (NOT chores, events, meals, locations, or people)
 - list_items: user wants to see items in a category or location
 - low_stock: user wants to see what's running low
 - suggest_recipes: user asks what they can cook/make/eat with what they have (e.g. "what can I make tonight?")
 - add_event: user wants to put something on the calendar (set "item" to the event title, "datetime" to ISO 8601 resolved from today's date)
 - add_chore: user wants to CREATE a new chore/recurring task (set "item" to the chore title, "person" to the assignee if mentioned, "frequency" to once|daily|weekly|monthly)
 - complete_chore: user says an existing chore is DONE (set "item" to the chore name, "person" to who did it if mentioned)
-- unknown: cannot determine intent (questions/chit-chat go here)
+- unknown: anything else — questions, chit-chat, AND requests to edit/delete/rename events, chores, meals, locations, categories, or family members (a smarter assistant handles those; do NOT force them into the actions above)
 
 Respond ONLY with valid JSON in this format (always a top-level "actions" array, even for one action):
 {{
@@ -68,6 +68,8 @@ Examples (each -> the "actions" array):
 - "I took out the trash" -> [{{"action": "complete_chore", "item": "trash", ...}}]
 - "Emma finished feeding the dog" -> [{{"action": "complete_chore", "item": "feeding the dog", "person": "Emma", ...}}]
 - "how are you?" / "what's on the calendar this week?" -> [{{"action": "unknown", ...}}]
+- "cancel the dentist appointment" / "delete the water plants chore" / "reassign dishes to Sam" -> [{{"action": "unknown", ...}}]
+- "add a location called Attic" / "rename the garage to Workshop" / "add Sam to the family" -> [{{"action": "unknown", ...}}]
 """
 
 
