@@ -124,8 +124,10 @@ class Chore(Base):
     description = Column(Text, nullable=True)
     icon = Column(String(50), nullable=True)            # emoji shown on chore chart & calendar
     assigned_to = Column(String(100), nullable=True)    # family member name
-    frequency = Column(String(20), default="weekly")    # once | daily | weekly | monthly
+    frequency = Column(String(20), default="weekly")    # once | daily | weekly | biweekly | monthly
     day_of_week = Column(Integer, nullable=True)        # 0=Monday .. 6=Sunday, for weekly chores
+    override_assigned_to = Column(String(100), nullable=True)  # temp assignee ("just this week")
+    override_until = Column(Date, nullable=True)        # exclusive end — start of the next period
     created_at = Column(DateTime, default=datetime.utcnow)
 
     completions = relationship("ChoreCompletion", back_populates="chore", cascade="all, delete-orphan")

@@ -86,7 +86,11 @@ TOOLS = [
     _tool("list_chores", "List all chores with assignee and frequency.", {}),
     _tool("update_chore", "Change a chore's assignee, frequency, or title, found by title. Only pass fields to change.",
           {"title": _S("current chore title (or part of it)"), "assigned_to": _S("family member to assign"),
-           "frequency": _S("once|daily|weekly|monthly"), "new_title": _S("new title")}, ["title"]),
+           "frequency": _S("once|daily|weekly|biweekly|monthly"), "new_title": _S("new title")}, ["title"]),
+    _tool("reassign_chore", "Hand a chore to another person. Set temporary=true for 'just this week/time' — it reverts automatically next period.",
+          {"title": _S("chore title (or part of it)"), "person": _S("family member taking it over"),
+           "temporary": {"type": "boolean", "description": "true = only until the current period ends"}},
+          ["title", "person"]),
     _tool("delete_chore", "Delete a chore from the chart.", {"title": _S("chore title or part of it")}, ["title"]),
     # --- meals ---
     _tool("list_meals", "List planned meals for the next N days (default 7).",
@@ -362,8 +366,8 @@ async def execute_tool(name: str, args: dict, db, source: str) -> dict | list | 
                 changes.append(f"assigned to {chore.assigned_to}")
             if args.get("frequency"):
                 freq = args["frequency"].lower()
-                if freq not in ("once", "daily", "weekly", "monthly"):
-                    return "frequency must be once, daily, weekly, or monthly."
+                if freq not in ("once", "daily", "weekly", "biweekly", "monthly"):
+                    return "frequency must be once, daily, weekly, biweekly, or monthly."
                 chore.frequency = freq; changes.append(f"frequency {freq}")
             if args.get("new_title"):
                 chore.title = args["new_title"]; changes.append(f"renamed to {chore.title}")
@@ -371,6 +375,21 @@ async def execute_tool(name: str, args: dict, db, source: str) -> dict | list | 
                 return "No fields to change were given."
             db.commit()
             return f"Updated chore '{chore.title}': {', '.join(changes)}."
+
+        if name == "reassign_chore":
+            from routers.chores import reassign_chore as _reassign, ReassignRequest
+            chore = db.query(Chore).filter(Chore.title.ilike(f"%{args['title']}%")).first()
+            if not chore:
+                return f"No chore matching '{args['title']}'."
+            person = args["person"].strip()
+            member = db.query(FamilyMember).filter(FamilyMember.name.ilike(f"%{person}%")).first()
+            if member:
+                person = member.name
+            temporary = bool(args.get("temporary"))
+            result = _reassign(chore.id, ReassignRequest(person=person, permanent=not temporary), db)
+            if result.get("override_active"):
+                return f"{result['title']} is {person}'s until next period, then it goes back to {result['original_assigned_to'] or 'anyone'}."
+            return f"Reassigned '{result['title']}' to {person}."
 
         if name == "delete_chore":
             chore = db.query(Chore).filter(Chore.title.ilike(f"%{args['title']}%")).first()

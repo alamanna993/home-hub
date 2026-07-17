@@ -398,6 +398,74 @@ async def list_models(provider: str, db: Session = Depends(get_db), _: User = De
         return {"models": CURATED_MODELS.get(provider, []), "source": "static", "error": str(e)}
 
 
+# ---- Ollama model downloads (pull any model from the Ollama library) ----
+
+PULLS: dict[str, dict] = {}  # model -> {status, completed, total, error, done}
+
+
+async def _run_pull(host: str, model: str):
+    import httpx
+    state = PULLS[model]
+    try:
+        async with httpx.AsyncClient(timeout=None) as client:
+            async with client.stream("POST", f"{host}/api/pull",
+                                     json={"model": model, "stream": True}) as r:
+                r.raise_for_status()
+                async for line in r.aiter_lines():
+                    if not line.strip():
+                        continue
+                    import json as _json
+                    try:
+                        chunk = _json.loads(line)
+                    except ValueError:
+                        continue
+                    if chunk.get("error"):
+                        state.update(status="error", error=chunk["error"], done=True)
+                        return
+                    state["status"] = chunk.get("status") or state["status"]
+                    if chunk.get("total"):
+                        state["total"] = chunk["total"]
+                        state["completed"] = chunk.get("completed", 0)
+                    if chunk.get("status") == "success":
+                        state.update(status="success", done=True)
+                        return
+        state.update(status="success", done=True)  # stream ended cleanly
+    except Exception as e:
+        state.update(status="error", error=str(e), done=True)
+
+
+class PullRequest(BaseModel):
+    model: str
+
+
+@router.post("/models/pull")
+async def pull_model(data: PullRequest, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    """Start downloading an Ollama model (any name from ollama.com/library) in the
+    background; poll /settings/models/pull-status to watch progress."""
+    import asyncio
+    model = data.model.strip()
+    if not model or any(c in model for c in " \"'"):
+        raise HTTPException(status_code=400, detail="That doesn't look like an Ollama model name (e.g. llama3.2:3b)")
+    existing = PULLS.get(model)
+    if existing and not existing.get("done"):
+        return {"ok": True, "already_running": True}
+    rows = {s.key: s.value for s in db.query(Setting).all()}
+    host = rows.get("ollama_host") or env_settings.ollama_host
+    if not host:
+        raise HTTPException(status_code=400, detail="No Ollama host configured")
+    PULLS[model] = {"status": "starting", "completed": 0, "total": 0, "error": None, "done": False}
+    asyncio.get_running_loop().create_task(_run_pull(host, model))
+    return {"ok": True}
+
+
+@router.get("/models/pull-status")
+def pull_status(model: str, _: User = Depends(require_admin)):
+    state = PULLS.get(model.strip())
+    if not state:
+        raise HTTPException(status_code=404, detail="No download running for that model")
+    return {"model": model, **state}
+
+
 @router.post("/setup/complete")
 def complete_setup(db: Session = Depends(get_db), _: User = Depends(require_admin)):
     setting = db.query(Setting).filter(Setting.key == "setup_complete").first()

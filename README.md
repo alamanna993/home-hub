@@ -7,9 +7,9 @@ Self-hosted family hub: home inventory, AI chat (local or cloud), meal planning,
 - 💬 **AI Chat** — talks naturally, answers about the calendar/chores/inventory, and *updates the database*: "just bought 2 gallons of milk", "added chicken to the fridge, use by friday", "I took out the trash", "add karate tuesday 5:30pm" — from the web app or Telegram. Handles whole shopping lists in one message and asks where to file items (with tappable location buttons on Telegram)
 - 📅 **Calendar** — month view with chores overlaid, quarter-hour event picking, 12h/24h toggle, and **true two-way Microsoft 365/Outlook sync** ([setup guide](docs/microsoft-sync.md)) plus iCal/ICS feeds in both directions for Google
 - 🍽️ **Meal Planner** — plan the week; one tap asks the AI "what can I make tonight?" from what's actually in the kitchen
-- ✅ **Chore Chart** — big kid-friendly emoji tiles per family member, cheers on completion, daily/weekly/monthly resets
+- ✅ **Chore Chart** — big kid-friendly emoji tiles per family member, cheers on completion, daily/weekly/biweekly/monthly resets, full editing, one-tap handoff to another person ("just this week" or for good), and a past-chores history with completion dates
 - 👨‍👩‍👧‍👦 **Family & logins** — family member profiles with emoji avatars; admin and member accounts (members get everything except Settings — ideal for kids' tablets)
-- 🤖 **Pluggable AI** — Ollama or LM Studio (local), OpenAI or Claude (cloud); model dropdowns list what's actually installed; switch in Settings with a live test button, or run with no AI at all
+- 🤖 **Pluggable AI** — Ollama or LM Studio (local), OpenAI or Claude (cloud); model dropdowns list what's actually installed, and any model from the Ollama library can be downloaded right from Settings (with a progress bar); switch models with a live test button, or run with no AI at all
 - 💾 **Redundant data** — pick the database/backup folders in the setup wizard (NAS-friendly, with a path tester) plus automatic nightly SQL backups with retention
 - 🧙 **Setup wizard** — first login is admin/admin; the wizard walks through password, storage, AI, and bots in the browser
 - 📱 **Phone-friendly** — hamburger-drawer navigation, an agenda-style calendar and day-at-a-time meal planner on small screens, touch-sized buttons everywhere; the desktop layout is unchanged on tablets and up

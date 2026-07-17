@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Save, Eye, EyeOff, KeyRound, RefreshCw, Database, Users, Copy, Trash2 } from 'lucide-react'
+import { Save, Eye, EyeOff, KeyRound, RefreshCw, Database, Download, Users, Copy, Trash2 } from 'lucide-react'
 import axios from 'axios'
 import toast from 'react-hot-toast'
 import { useAuth } from '../hooks/useAuth'
@@ -56,6 +56,92 @@ const MODEL_KEYS: Record<string, string> = {
   lmstudio_model: 'lmstudio',
   openai_model: 'openai',
   claude_model: 'claude',
+}
+
+const SUGGESTED_PULLS = ['llama3.2:3b', 'qwen3:8b', 'mistral:7b', 'hermes3:8b']
+
+function OllamaPullSection({ onPulled }: { onPulled: () => void }) {
+  const [name, setName] = useState('')
+  const [pulling, setPulling] = useState<string | null>(null)
+  const [progress, setProgress] = useState<{ status: string; completed: number; total: number } | null>(null)
+
+  useEffect(() => {
+    if (!pulling) return
+    const t = setInterval(async () => {
+      try {
+        const { data } = await axios.get(`/api/settings/models/pull-status?model=${encodeURIComponent(pulling)}`)
+        setProgress(data)
+        if (data.done) {
+          setPulling(null)
+          setProgress(null)
+          if (data.status === 'success') {
+            toast.success(`${pulling} downloaded — pick it in the model list above`)
+            onPulled()
+          } else {
+            toast.error(`Download failed: ${data.error || data.status}`)
+          }
+        }
+      } catch { /* keep polling — transient */ }
+    }, 2000)
+    return () => clearInterval(t)
+  }, [pulling])
+
+  async function pull(model: string) {
+    const m = model.trim()
+    if (!m) return
+    try {
+      await axios.post('/api/settings/models/pull', { model: m })
+      setPulling(m)
+      setProgress({ status: 'starting', completed: 0, total: 0 })
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || 'Could not start the download')
+    }
+  }
+
+  const pct = progress && progress.total > 0 ? Math.round((progress.completed / progress.total) * 100) : null
+  const gb = (n: number) => (n / 1e9).toFixed(1)
+
+  return (
+    <div className="border-t border-surface-border pt-4">
+      <label className="text-xs text-surface-muted font-medium block mb-1.5">Download a model</label>
+      <p className="text-surface-muted text-xs mb-2">
+        Any model from <a className="text-accent hover:underline" href="https://ollama.com/library" target="_blank" rel="noreferrer">ollama.com/library</a> —
+        it downloads onto your Ollama machine and then shows up in the model list above.
+      </p>
+      <div className="flex gap-2">
+        <input className="flex-1 bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
+          placeholder="e.g. qwen3:8b" value={name} onChange={e => setName(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && !pulling && pull(name)} disabled={!!pulling} />
+        <button onClick={() => pull(name)} disabled={!!pulling || !name.trim()}
+          className="flex items-center gap-1.5 px-3 py-2 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-lg transition-all disabled:opacity-50">
+          {pulling ? <RefreshCw size={13} className="animate-spin" /> : <Download size={13} />}
+          {pulling ? 'Downloading…' : 'Download'}
+        </button>
+      </div>
+      {!pulling && (
+        <div className="flex gap-1.5 flex-wrap mt-2">
+          {SUGGESTED_PULLS.map(m => (
+            <button key={m} onClick={() => pull(m)}
+              className="text-[11px] px-2 py-1 rounded-full border border-surface-border text-surface-muted hover:text-white hover:border-accent transition-all">
+              ⬇ {m}
+            </button>
+          ))}
+        </div>
+      )}
+      {pulling && progress && (
+        <div className="mt-3 space-y-1.5">
+          <div className="flex justify-between text-xs text-surface-muted">
+            <span>{pulling}: {progress.status}</span>
+            {pct != null && <span>{gb(progress.completed)} / {gb(progress.total)} GB — {pct}%</span>}
+          </div>
+          <div className="h-2 bg-surface rounded-full overflow-hidden">
+            <div className="h-full bg-accent transition-all" style={{ width: `${pct ?? 5}%` }} />
+          </div>
+          <p className="text-[11px] text-surface-muted">Big models take a while — you can leave this page; the download keeps going.</p>
+        </div>
+      )}
+    </div>
+  )
 }
 
 const GROUPS = [
@@ -533,6 +619,7 @@ export default function Settings() {
   const [settings, setSettings] = useState<Setting[]>([])
   const [edits, setEdits] = useState<Record<string, string>>({})
   const [revealed, setRevealed] = useState<Record<string, boolean>>({})
+  const [modelRefresh, setModelRefresh] = useState(0)
   const [saving, setSaving] = useState<string | null>(null)
 
   const [pwForm, setPwForm] = useState({ current: '', next: '', confirm: '' })
@@ -703,7 +790,7 @@ export default function Settings() {
               <div className="flex gap-2">
                 <div className="relative flex-1">
                   {modelProvider ? (
-                    <ModelSelect provider={modelProvider} value={getValue(s)}
+                    <ModelSelect provider={modelProvider} value={getValue(s)} refreshKey={modelRefresh}
                       onChange={v => setEdits(prev => ({ ...prev, [key]: v }))} />
                   ) : (
                     <>
@@ -735,6 +822,10 @@ export default function Settings() {
             </div>
           )
         })}
+
+        {(edits['llm_provider'] ?? settingsByKey['llm_provider']?.value ?? 'ollama') === 'ollama' && (
+          <OllamaPullSection onPulled={() => setModelRefresh(n => n + 1)} />
+        )}
       </motion.div>
 
       {/* Storage */}

@@ -114,8 +114,9 @@ export const deleteMeal = (id: number) =>
 // ---- Chores ----
 export interface Chore {
   id: number; title: string; description?: string; icon?: string
-  assigned_to?: string; frequency: 'once' | 'daily' | 'weekly' | 'monthly'
+  assigned_to?: string; frequency: 'once' | 'daily' | 'weekly' | 'biweekly' | 'monthly'
   day_of_week?: number
+  override_active?: boolean; original_assigned_to?: string
   done_this_period: boolean
   last_completed_at?: string; last_completed_by?: string
 }
@@ -136,6 +137,9 @@ export const updateChore = (id: number, data: { title?: string; icon?: string; a
 
 export const deleteChoreCompletion = (completionId: number) =>
   api.delete(`/chores/completions/${completionId}`).then(r => r.data)
+
+export const reassignChore = (id: number, person: string | null, permanent: boolean) =>
+  api.post<Chore>(`/chores/${id}/reassign`, { person, permanent }).then(r => r.data)
 
 export const createChore = (data: { title: string; description?: string; icon?: string; assigned_to?: string; frequency?: string; day_of_week?: number }) =>
   api.post<Chore>('/chores/', data).then(r => r.data)

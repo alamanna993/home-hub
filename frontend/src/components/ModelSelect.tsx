@@ -7,11 +7,12 @@ interface Props {
   value: string
   onChange: (v: string) => void
   className?: string
+  refreshKey?: number   // bump to force a reload (e.g. after downloading a model)
 }
 
 const CUSTOM = '__custom__'
 
-export default function ModelSelect({ provider, value, onChange, className }: Props) {
+export default function ModelSelect({ provider, value, onChange, className, refreshKey }: Props) {
   const [models, setModels] = useState<string[]>([])
   const [source, setSource] = useState<'live' | 'static'>('static')
   const [loading, setLoading] = useState(false)
@@ -31,7 +32,7 @@ export default function ModelSelect({ provider, value, onChange, className }: Pr
     }
   }
 
-  useEffect(() => { load() }, [provider])
+  useEffect(() => { load() }, [provider, refreshKey])
 
   const inputCls = className || 'w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent'
 

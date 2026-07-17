@@ -8,7 +8,7 @@ from models import Chore, ChoreCompletion
 
 router = APIRouter(prefix="/chores", tags=["chores"])
 
-FREQUENCIES = ("once", "daily", "weekly", "monthly")
+FREQUENCIES = ("once", "daily", "weekly", "biweekly", "monthly")
 
 # Keyword → emoji for chores created from chat, where nobody picks an icon by hand.
 CHORE_ICONS = (
@@ -78,9 +78,30 @@ def _period_start(chore: Chore, today: date) -> datetime:
     if chore.frequency == "weekly":
         monday = today - timedelta(days=today.weekday())
         return datetime(monday.year, monday.month, monday.day)
+    if chore.frequency == "biweekly":
+        # 14-day periods anchored to the Monday of the week the chore was created
+        monday = today - timedelta(days=today.weekday())
+        anchor = (chore.created_at or datetime.min).date()
+        anchor_monday = anchor - timedelta(days=anchor.weekday())
+        start = monday - timedelta(days=((monday - anchor_monday).days // 7 % 2) * 7)
+        return datetime(start.year, start.month, start.day)
     if chore.frequency == "monthly":
         return datetime(today.year, today.month, 1)
     return datetime.min  # "once": any completion ever counts
+
+
+def _next_period_start(chore: Chore, today: date) -> date | None:
+    """First day of the NEXT period — when a temporary reassignment expires."""
+    start = _period_start(chore, today).date()
+    if chore.frequency == "daily":
+        return start + timedelta(days=1)
+    if chore.frequency == "weekly":
+        return start + timedelta(days=7)
+    if chore.frequency == "biweekly":
+        return start + timedelta(days=14)
+    if chore.frequency == "monthly":
+        return date(start.year + 1, 1, 1) if start.month == 12 else date(start.year, start.month + 1, 1)
+    return None  # "once" has no next period
 
 
 def chore_to_dict(chore: Chore, db: Session) -> dict:
@@ -98,12 +119,16 @@ def chore_to_dict(chore: Chore, db: Session) -> dict:
         .order_by(ChoreCompletion.completed_at.desc())
         .first()
     )
+    override_active = bool(chore.override_assigned_to and chore.override_until and today < chore.override_until)
     return {
         "id": chore.id,
         "title": chore.title,
         "description": chore.description,
         "icon": chore.icon,
-        "assigned_to": chore.assigned_to,
+        # while a temporary handoff is active, the chore *belongs* to the stand-in
+        "assigned_to": chore.override_assigned_to if override_active else chore.assigned_to,
+        "original_assigned_to": chore.assigned_to if override_active else None,
+        "override_active": override_active,
         "frequency": chore.frequency,
         "day_of_week": chore.day_of_week,
         "done_this_period": done is not None,
@@ -159,6 +184,32 @@ def clear_past_chores(db: Session = Depends(get_db)):
                     .delete())
     db.commit()
     return {"ok": True, "removed": removed}
+
+
+class ReassignRequest(BaseModel):
+    person: Optional[str] = None   # None/empty = "Anyone"
+    permanent: bool = False
+
+
+@router.post("/{chore_id}/reassign")
+def reassign_chore(chore_id: int, data: ReassignRequest, db: Session = Depends(get_db)):
+    """Hand a chore to someone else — permanently, or only until the current
+    period rolls over (the override then expires on its own)."""
+    chore = db.query(Chore).filter(Chore.id == chore_id).first()
+    if not chore:
+        raise HTTPException(status_code=404, detail="Chore not found")
+    person = (data.person or "").strip() or None
+    until = _next_period_start(chore, date.today())
+    if data.permanent or until is None:  # a one-time chore has no period to revert after
+        chore.assigned_to = person
+        chore.override_assigned_to = None
+        chore.override_until = None
+    else:
+        chore.override_assigned_to = person
+        chore.override_until = until
+    db.commit()
+    db.refresh(chore)
+    return chore_to_dict(chore, db)
 
 
 @router.delete("/completions/{completion_id}")

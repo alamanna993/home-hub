@@ -114,6 +114,8 @@ def run_migrations():
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'admin'"))
         conn.execute(text("ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS ms_id VARCHAR(300)"))
         conn.execute(text("ALTER TABLE items ADD COLUMN IF NOT EXISTS expiration_date DATE"))
+        conn.execute(text("ALTER TABLE chores ADD COLUMN IF NOT EXISTS override_assigned_to VARCHAR(100)"))
+        conn.execute(text("ALTER TABLE chores ADD COLUMN IF NOT EXISTS override_until DATE"))
 
 
 @app.on_event("startup")

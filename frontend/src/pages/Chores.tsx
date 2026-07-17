@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Check, ClipboardList, History, Pencil, Plus, RotateCcw, Trash2, UserPlus, X } from 'lucide-react'
+import { ArrowLeftRight, Check, ClipboardList, History, Pencil, Plus, RotateCcw, Trash2, UserPlus, X } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { getChores, createChore, completeChore, uncompleteChore, deleteChore, updateChore, deleteChoreCompletion, Chore, getFamily, createFamilyMember, updateFamilyMember, deleteFamilyMember, FamilyMember, getPastChores, clearPastChores, PastChore } from '../lib/api'
+import { getChores, createChore, completeChore, uncompleteChore, deleteChore, updateChore, deleteChoreCompletion, reassignChore, Chore, getFamily, createFamilyMember, updateFamilyMember, deleteFamilyMember, FamilyMember, getPastChores, clearPastChores, PastChore } from '../lib/api'
 import EmojiPicker from '../components/EmojiPicker'
 import { cn } from '../lib/utils'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-const FREQ_LABEL: Record<string, string> = { once: 'One-time', daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly' }
+const FREQ_LABEL: Record<string, string> = { once: 'One-time', daily: 'Daily', weekly: 'Weekly', biweekly: 'Every 2 weeks', monthly: 'Monthly' }
 const CHEERS = ['🎉 Great job!', '⭐ Awesome!', '🙌 Nice work!', '💪 You did it!', '🌟 Superstar!']
 
 export default function Chores() {
@@ -34,11 +34,56 @@ export default function Chores() {
   }
   useEffect(() => { load() }, [])
 
+  // Past-chore rows only carry title/icon, so they get a simple rename;
+  // active tiles open the full edit modal instead.
   async function rename(choreId: number, currentTitle: string) {
     const t = prompt('Rename chore:', currentTitle)?.trim()
     if (!t || t === currentTitle) return
     await updateChore(choreId, { title: t })
     toast.success('Chore renamed')
+    load()
+  }
+
+  const [editChore, setEditChore] = useState<Chore | null>(null)
+  const [editForm, setEditForm] = useState({ title: '', icon: '🧹', assigned_to: '', frequency: 'weekly', day_of_week: '' })
+  const [reassign, setReassign] = useState<Chore | null>(null)
+  const [reassignScope, setReassignScope] = useState<'period' | 'permanent'>('period')
+
+  function openEdit(chore: Chore) {
+    setEditChore(chore)
+    setEditForm({
+      title: chore.title,
+      icon: chore.icon || '🧹',
+      // edit the real owner, not a temporary stand-in
+      assigned_to: (chore.override_active ? chore.original_assigned_to : chore.assigned_to) || '',
+      frequency: chore.frequency,
+      day_of_week: chore.day_of_week != null ? String(chore.day_of_week) : '',
+    })
+  }
+
+  async function saveEdit() {
+    if (!editChore) return
+    if (!editForm.title.trim()) return toast.error('Title is required')
+    const weekly = editForm.frequency === 'weekly' || editForm.frequency === 'biweekly'
+    await updateChore(editChore.id, {
+      title: editForm.title.trim(),
+      icon: editForm.icon,
+      assigned_to: editForm.assigned_to,
+      frequency: editForm.frequency,
+      day_of_week: weekly && editForm.day_of_week !== '' ? Number(editForm.day_of_week) : undefined,
+    })
+    toast.success('Chore updated')
+    setEditChore(null)
+    load()
+  }
+
+  async function doReassign(person: string) {
+    if (!reassign) return
+    const updated = await reassignChore(reassign.id, person || null, reassignScope === 'permanent')
+    toast.success(updated.override_active
+      ? `${updated.title} → ${person} for this period, then back to ${updated.original_assigned_to || 'anyone'}`
+      : `${updated.title} → ${person || 'Anyone'}`)
+    setReassign(null)
     load()
   }
 
@@ -194,10 +239,11 @@ export default function Chores() {
           value={frequency} onChange={e => setFrequency(e.target.value)}>
           <option value="daily">Daily</option>
           <option value="weekly">Weekly</option>
+          <option value="biweekly">Every 2 weeks</option>
           <option value="monthly">Monthly</option>
           <option value="once">One-time</option>
         </select>
-        {frequency === 'weekly' && (
+        {(frequency === 'weekly' || frequency === 'biweekly') && (
           <select className="bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
             value={dayOfWeek} onChange={e => setDayOfWeek(e.target.value)}>
             <option value="">Any day</option>
@@ -256,8 +302,13 @@ export default function Chores() {
                       </span>
                       <span className="text-surface-muted text-[10px] text-center">
                         {FREQ_LABEL[chore.frequency]}
-                        {chore.frequency === 'weekly' && chore.day_of_week != null && ` · ${DAYS[chore.day_of_week]}`}
+                        {(chore.frequency === 'weekly' || chore.frequency === 'biweekly') && chore.day_of_week != null && ` · ${DAYS[chore.day_of_week]}`}
                       </span>
+                      {chore.override_active && (
+                        <span className="text-accent text-[10px] font-medium flex items-center gap-0.5">
+                          <ArrowLeftRight size={9} /> from {chore.original_assigned_to || 'Anyone'} this time
+                        </span>
+                      )}
                       {chore.done_this_period && chore.last_completed_by && (
                         <span className="text-green-300 text-[11px] font-medium">🌟 {chore.last_completed_by}</span>
                       )}
@@ -266,9 +317,13 @@ export default function Chores() {
                       className="absolute top-1 right-1 p-2 rounded-full bg-surface-card/80 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 text-surface-muted hover:text-red-400 transition-all">
                       <Trash2 size={14} />
                     </button>
-                    <button onClick={() => rename(chore.id, chore.title)}
+                    <button onClick={() => openEdit(chore)} title="Edit chore"
                       className="absolute top-1 left-1 p-2 rounded-full bg-surface-card/80 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 text-surface-muted hover:text-accent transition-all">
                       <Pencil size={14} />
+                    </button>
+                    <button onClick={() => { setReassign(chore); setReassignScope('period') }} title="Hand to someone else"
+                      className="absolute top-9 left-1 p-2 rounded-full bg-surface-card/80 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 text-surface-muted hover:text-accent transition-all">
+                      <ArrowLeftRight size={14} />
                     </button>
                   </motion.div>
                 ))}
@@ -318,6 +373,103 @@ export default function Chores() {
               {showAllPast ? 'Show fewer' : `Show all ${past.length}`}
             </button>
           )}
+        </div>
+      )}
+
+      {/* Edit chore modal */}
+      {editChore && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setEditChore(null)}>
+          <div className="bg-surface-card border border-surface-border rounded-2xl p-5 w-full max-w-md space-y-4 max-h-modal overflow-y-auto"
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-white font-semibold">Edit chore</h3>
+              <button onClick={() => setEditChore(null)} className="text-surface-muted hover:text-white"><X size={18} /></button>
+            </div>
+            <div className="flex gap-3">
+              <EmojiPicker value={editForm.icon} onChange={v => setEditForm(f => ({ ...f, icon: v }))} />
+              <input autoFocus className="flex-1 bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
+                value={editForm.title} onChange={e => setEditForm(f => ({ ...f, title: e.target.value }))}
+                onKeyDown={e => e.key === 'Enter' && saveEdit()} />
+            </div>
+            <div>
+              <label className="text-xs text-surface-muted font-medium block mb-1.5">Assigned to</label>
+              <select className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
+                value={editForm.assigned_to} onChange={e => setEditForm(f => ({ ...f, assigned_to: e.target.value }))}>
+                <option value="">Anyone</option>
+                {members.map(m => <option key={m.id} value={m.name}>{m.icon || '🙂'} {m.name}</option>)}
+              </select>
+            </div>
+            <div className="flex gap-3">
+              <div className="flex-1">
+                <label className="text-xs text-surface-muted font-medium block mb-1.5">How often</label>
+                <select className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
+                  value={editForm.frequency} onChange={e => setEditForm(f => ({ ...f, frequency: e.target.value }))}>
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="biweekly">Every 2 weeks</option>
+                  <option value="monthly">Monthly</option>
+                  <option value="once">One-time</option>
+                </select>
+              </div>
+              {(editForm.frequency === 'weekly' || editForm.frequency === 'biweekly') && (
+                <div className="flex-1">
+                  <label className="text-xs text-surface-muted font-medium block mb-1.5">Day</label>
+                  <select className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
+                    value={editForm.day_of_week} onChange={e => setEditForm(f => ({ ...f, day_of_week: e.target.value }))}>
+                    <option value="">Any day</option>
+                    {DAYS.map((d, i) => <option key={d} value={i}>{d}</option>)}
+                  </select>
+                </div>
+              )}
+            </div>
+            <button onClick={saveEdit}
+              className="w-full bg-accent hover:bg-accent-hover text-white text-sm font-medium py-2.5 rounded-lg transition-all">
+              Save changes
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Reassign modal */}
+      {reassign && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setReassign(null)}>
+          <div className="bg-surface-card border border-surface-border rounded-2xl p-5 w-full max-w-sm space-y-4"
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-white font-semibold flex items-center gap-2">
+                <ArrowLeftRight size={15} className="text-accent" /> Hand off "{reassign.title}"
+              </h3>
+              <button onClick={() => setReassign(null)} className="text-surface-muted hover:text-white"><X size={18} /></button>
+            </div>
+            <div className="flex gap-2 text-xs">
+              <button onClick={() => setReassignScope('period')}
+                className={cn('flex-1 py-2 rounded-lg border transition-all',
+                  reassignScope === 'period' ? 'border-accent text-accent bg-accent/10' : 'border-surface-border text-surface-muted hover:text-white')}>
+                Just this {reassign.frequency === 'daily' ? 'day' : reassign.frequency === 'monthly' ? 'month' : 'week'}
+              </button>
+              <button onClick={() => setReassignScope('permanent')}
+                className={cn('flex-1 py-2 rounded-lg border transition-all',
+                  reassignScope === 'permanent' ? 'border-accent text-accent bg-accent/10' : 'border-surface-border text-surface-muted hover:text-white')}>
+                Permanently
+              </button>
+            </div>
+            <div className="space-y-1.5">
+              {members
+                .filter(m => m.name !== reassign.assigned_to)
+                .map(m => (
+                  <button key={m.id} onClick={() => doReassign(m.name)}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg border border-surface-border text-white text-sm hover:border-accent transition-all">
+                    <span className="text-lg">{m.icon || '🙂'}</span> {m.name}
+                  </button>
+                ))}
+              {reassignScope === 'permanent' && reassign.assigned_to && (
+                <button onClick={() => doReassign('')}
+                  className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg border border-surface-border text-surface-muted text-sm hover:border-accent hover:text-white transition-all">
+                  <span className="text-lg">🙋</span> Anyone
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>
