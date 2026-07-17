@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Check, ClipboardList, Pencil, Plus, Trash2, UserPlus, X } from 'lucide-react'
+import { Check, ClipboardList, History, Pencil, Plus, Trash2, UserPlus, X } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { getChores, createChore, completeChore, uncompleteChore, deleteChore, Chore, getFamily, createFamilyMember, updateFamilyMember, deleteFamilyMember, FamilyMember } from '../lib/api'
+import { getChores, createChore, completeChore, uncompleteChore, deleteChore, Chore, getFamily, createFamilyMember, updateFamilyMember, deleteFamilyMember, FamilyMember, getPastChores, clearPastChores, PastChore } from '../lib/api'
 import EmojiPicker from '../components/EmojiPicker'
 import { cn } from '../lib/utils'
 
@@ -24,8 +24,22 @@ export default function Chores() {
   const [editMemberId, setEditMemberId] = useState<number | null>(null)
   const [editMember, setEditMember] = useState({ name: '', icon: '' })
 
-  const load = () => { getChores().then(setChores); getFamily().then(setMembers).catch(() => {}) }
+  const [past, setPast] = useState<PastChore[]>([])
+  const [showAllPast, setShowAllPast] = useState(false)
+
+  const load = () => {
+    getChores().then(setChores)
+    getFamily().then(setMembers).catch(() => {})
+    getPastChores().then(setPast).catch(() => {})
+  }
   useEffect(() => { load() }, [])
+
+  async function clearHistory() {
+    if (!confirm('Clear the chore history? Finished one-time chores are removed for good.')) return
+    await clearPastChores()
+    toast.success('History cleared')
+    load()
+  }
 
   async function addMember() {
     if (!newMember.trim()) return
@@ -77,7 +91,13 @@ export default function Chores() {
     if (!chore.done_this_period) {
       toast(CHEERS[Math.floor(Math.random() * CHEERS.length)], { icon: chore.icon || '✅' })
     }
-    setChores(cs => cs.map(c => c.id === updated.id ? updated : c))
+    // A checked-off one-time chore leaves the chart for the history section
+    if (updated.frequency === 'once' && updated.done_this_period) {
+      setChores(cs => cs.filter(c => c.id !== updated.id))
+    } else {
+      setChores(cs => cs.map(c => c.id === updated.id ? updated : c))
+    }
+    getPastChores().then(setPast).catch(() => {})
   }
 
   async function remove(id: number) {
@@ -237,6 +257,41 @@ export default function Chores() {
           )
         })}
       </div>
+
+      {/* Past chores — completion history with dates */}
+      {past.length > 0 && (
+        <div className="bg-surface-card border border-surface-border rounded-2xl p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-white font-semibold flex items-center gap-2">
+              <History size={16} className="text-surface-muted" /> Past chores
+            </h3>
+            <button onClick={clearHistory}
+              className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-surface-border text-surface-muted hover:text-red-400 hover:border-red-500/40 transition-all">
+              <Trash2 size={13} /> Clear history
+            </button>
+          </div>
+          <div className="divide-y divide-surface-border">
+            {(showAllPast ? past : past.slice(0, 8)).map(p => (
+              <div key={p.id} className="flex items-center gap-3 py-2 text-sm">
+                <span className="text-xl w-7 text-center flex-shrink-0">{p.icon || '✅'}</span>
+                <span className="text-white flex-1 min-w-0 truncate">{p.title}</span>
+                {p.completed_by && <span className="text-surface-muted text-xs flex-shrink-0">🌟 {p.completed_by}</span>}
+                <span className="text-surface-muted text-xs flex-shrink-0">
+                  {/* completed_at is naive UTC from the backend — pin it so local rendering is right */}
+                  {new Date(p.completed_at.endsWith('Z') ? p.completed_at : p.completed_at + 'Z')
+                    .toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+                </span>
+              </div>
+            ))}
+          </div>
+          {past.length > 8 && (
+            <button onClick={() => setShowAllPast(s => !s)}
+              className="text-xs text-surface-muted hover:text-white transition-all">
+              {showAllPast ? 'Show fewer' : `Show all ${past.length}`}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }

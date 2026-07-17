@@ -120,7 +120,16 @@ export interface Chore {
   last_completed_at?: string; last_completed_by?: string
 }
 
+export interface PastChore {
+  id: number; chore_id: number; title: string; icon?: string
+  frequency: string; completed_at: string; completed_by?: string
+}
+
 export const getChores = () => api.get<Chore[]>('/chores/').then(r => r.data)
+
+export const getPastChores = () => api.get<PastChore[]>('/chores/past').then(r => r.data)
+
+export const clearPastChores = () => api.delete('/chores/past').then(r => r.data)
 
 export const createChore = (data: { title: string; description?: string; icon?: string; assigned_to?: string; frequency?: string; day_of_week?: number }) =>
   api.post<Chore>('/chores/', data).then(r => r.data)

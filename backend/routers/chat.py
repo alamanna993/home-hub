@@ -629,7 +629,7 @@ async def handle_action(parsed: dict, req: ChatRequest, db: Session) -> dict:
 
     elif action == "add_chore" and item_name:
         from models import Chore, FamilyMember
-        from routers.chores import FREQUENCIES
+        from routers.chores import FREQUENCIES, pick_chore_icon
         title = item_name.strip()
         title = title[0].upper() + title[1:] if title else title
         existing = db.query(Chore).filter(Chore.title.ilike(title)).first()
@@ -644,10 +644,17 @@ async def handle_action(parsed: dict, req: ChatRequest, db: Session) -> dict:
             member = db.query(FamilyMember).filter(FamilyMember.name.ilike(f"%{person}%")).first()
             if member:
                 person = member.name
-        chore = Chore(title=title, assigned_to=person, frequency=freq)
+        # Keyword lookup first (deterministic); the model's emoji only covers
+        # chores the map doesn't know — small models pick oddly ("🧴" for litter box)
+        icon = pick_chore_icon(title)
+        if icon == "🧹":
+            proposed = (parsed.get("icon") or "").strip()
+            if proposed and len(proposed) <= 4 and not proposed.isascii():
+                icon = proposed
+        chore = Chore(title=title, assigned_to=person, frequency=freq, icon=icon)
         db.add(chore)
         db.commit()
-        reply = f"🧹 Added chore **{title}** ({freq}" + (f", assigned to {person}" if person else "") + ")."
+        reply = f"{icon} Added chore **{title}** ({freq}" + (f", assigned to {person}" if person else "") + ")."
         return {"reply": reply, "action": action, "parsed": parsed}
 
     elif action == "complete_chore" and item_name:

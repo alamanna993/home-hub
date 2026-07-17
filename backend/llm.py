@@ -16,7 +16,7 @@ Available actions:
 - low_stock: user wants to see what's running low
 - suggest_recipes: user asks what they can cook/make/eat with what they have (e.g. "what can I make tonight?")
 - add_event: user wants to put something on the calendar (set "item" to the event title, "datetime" to ISO 8601 resolved from today's date)
-- add_chore: user wants to CREATE a new chore/recurring task (set "item" to the chore title, "person" to the assignee if mentioned, "frequency" to once|daily|weekly|monthly)
+- add_chore: user wants to CREATE a new chore/recurring task (set "item" to the chore title, "person" to the assignee if mentioned, "frequency" to once|daily|weekly|monthly, and "icon" to ONE emoji that matches the chore — 🗑️ trash, 🍽️ dishes, 🐕 walk the dog, 🧺 laundry, 🛏️ make the bed — never a generic broom unless it's actually sweeping)
 - complete_chore: user says an existing chore is DONE (set "item" to the chore name, "person" to who did it if mentioned)
 - unknown: anything else — questions, chit-chat, AND requests to edit/delete/rename events, chores, meals, locations, categories, or family members (a smarter assistant handles those; do NOT force them into the actions above)
 
@@ -41,6 +41,7 @@ Respond ONLY with valid JSON in this format (always a top-level "actions" array,
       "datetime": null,
       "person": null,
       "frequency": null,
+      "icon": null,
       "confidence": 0.95
     }}
   ]
@@ -77,8 +78,8 @@ Examples (each -> the "actions" array):
 - "what can I make for dinner tonight?" -> [{{"action": "suggest_recipes", ...}}]
 - "add dentist appointment friday at 2pm" -> [{{"action": "add_event", "item": "Dentist appointment", "datetime": "{friday}T14:00:00", ...}}]
 - "put soccer practice on the calendar for tomorrow 5:30" -> [{{"action": "add_event", "item": "Soccer practice", "datetime": "{tomorrow}T17:30:00", ...}}]
-- "add a chore for Emma to water the plants every day" -> [{{"action": "add_chore", "item": "Water the plants", "person": "Emma", "frequency": "daily", ...}}]
-- "new chore: take out the recycling weekly" -> [{{"action": "add_chore", "item": "Take out the recycling", "frequency": "weekly", ...}}]
+- "add a chore for Emma to water the plants every day" -> [{{"action": "add_chore", "item": "Water the plants", "person": "Emma", "frequency": "daily", "icon": "🪴", ...}}]
+- "new chore: take out the recycling weekly" -> [{{"action": "add_chore", "item": "Take out the recycling", "frequency": "weekly", "icon": "♻️", ...}}]
 - "I took out the trash" -> [{{"action": "complete_chore", "item": "trash", ...}}]
 - "Emma finished feeding the dog" -> [{{"action": "complete_chore", "item": "feeding the dog", "person": "Emma", ...}}]
 - "how are you?" / "what's on the calendar this week?" -> [{{"action": "unknown", ...}}]
