@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plus, Search, Trash2, Edit2, AlertTriangle, ArrowLeft, Inbox } from 'lucide-react'
+import { Plus, Search, Trash2, Edit2, AlertTriangle, ArrowLeft, ArrowUpDown, Inbox } from 'lucide-react'
 import { getItems, getCategories, getLocations, deleteItem, Item, Category, Location } from '../lib/api'
 import ItemModal from '../components/ItemModal'
 import { cn } from '../lib/utils'
@@ -12,6 +12,33 @@ interface Room {
   icon?: string
   count: number
   subs: { id: number; name: string }[]
+}
+
+const SORTS: Record<string, { label: string; cmp: (a: Item, b: Item) => number }> = {
+  name: { label: 'Name A→Z', cmp: (a, b) => a.name.localeCompare(b.name) },
+  name_desc: { label: 'Name Z→A', cmp: (a, b) => b.name.localeCompare(a.name) },
+  newest: { label: 'Newest entry', cmp: (a, b) => b.created_at.localeCompare(a.created_at) },
+  oldest: { label: 'Oldest entry', cmp: (a, b) => a.created_at.localeCompare(b.created_at) },
+  updated: {
+    label: 'Recently updated',
+    cmp: (a, b) => (b.updated_at || b.created_at).localeCompare(a.updated_at || a.created_at),
+  },
+  expiring: {
+    // items with a date first, soonest on top; dateless ones after
+    label: 'Expiring soonest',
+    cmp: (a, b) => !a.expiration_date === !b.expiration_date
+      ? (a.expiration_date || '').localeCompare(b.expiration_date || '')
+      : (a.expiration_date ? -1 : 1),
+  },
+  qty_low: { label: 'Quantity: low first', cmp: (a, b) => (a.quantity ?? Infinity) - (b.quantity ?? Infinity) },
+  qty_high: { label: 'Quantity: high first', cmp: (a, b) => (b.quantity ?? -Infinity) - (a.quantity ?? -Infinity) },
+  category: {
+    // uncategorized items go last
+    label: 'Category A→Z',
+    cmp: (a, b) => !a.category === !b.category
+      ? (a.category?.name || '').localeCompare(b.category?.name || '')
+      : (a.category ? -1 : 1),
+  },
 }
 
 export default function Inventory() {
@@ -26,6 +53,11 @@ export default function Inventory() {
   const [searchParams, setSearchParams] = useSearchParams()
   const roomFilter = searchParams.get('location') || ''
   const subFilter = searchParams.get('sub') || ''
+  const [sort, setSort] = useState(() => {
+    const saved = localStorage.getItem('hh_inv_sort')
+    return saved && saved in SORTS ? saved : 'name'
+  })
+  const changeSort = (key: string) => { setSort(key); localStorage.setItem('hh_inv_sort', key) }
 
   const openRoom = (room: string) => {
     setSearch(''); setCatFilter('')
@@ -79,6 +111,12 @@ export default function Inventory() {
 
   const currentRoom = rooms.find(r => r.name === roomFilter)
 
+  const sortedItems = useMemo(() => {
+    const cmp = (SORTS[sort] || SORTS.name).cmp
+    // name as tiebreaker keeps equal-key items stable and scannable
+    return [...items].sort((a, b) => cmp(a, b) || a.name.localeCompare(b.name))
+  }, [items, sort])
+
   const chip = (active: boolean) => cn(
     'flex items-center gap-1.5 px-3.5 py-2 rounded-full text-sm font-medium border transition-all whitespace-nowrap',
     active
@@ -130,12 +168,25 @@ export default function Inventory() {
         </button>
       </div>
 
-      {/* Search */}
-      <div className="relative">
-        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-muted" />
-        <input className="w-full bg-surface-card border border-surface-border rounded-lg pl-9 pr-3 py-2.5 text-white text-sm focus:outline-none focus:border-accent"
-          placeholder={roomFilter ? `Search in ${roomFilter === '__none__' ? 'unfiled items' : roomFilter}…` : 'Search all items…'}
-          value={search} onChange={e => setSearch(e.target.value)} />
+      {/* Search + sort */}
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-muted" />
+          <input className="w-full bg-surface-card border border-surface-border rounded-lg pl-9 pr-3 py-2.5 text-white text-sm focus:outline-none focus:border-accent"
+            placeholder={roomFilter ? `Search in ${roomFilter === '__none__' ? 'unfiled items' : roomFilter}…` : 'Search all items…'}
+            value={search} onChange={e => setSearch(e.target.value)} />
+        </div>
+        {showingItems && (
+          <div className="relative flex-shrink-0">
+            <ArrowUpDown size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-muted pointer-events-none" />
+            <select className="h-full bg-surface-card border border-surface-border rounded-lg pl-8 pr-3 py-2.5 text-white text-sm focus:outline-none focus:border-accent appearance-none"
+              value={sort} onChange={e => changeSort(e.target.value)} title="Sort items">
+              {Object.entries(SORTS).map(([key, s]) => (
+                <option key={key} value={key}>{s.label}</option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
       {/* Sub-location chips (inside a room) */}
@@ -223,7 +274,7 @@ export default function Inventory() {
         /* ------- Items grid ------- */
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
           <AnimatePresence>
-            {items.map((item, i) => (
+            {sortedItems.map((item, i) => (
               <motion.div key={item.id}
                 initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.03 }}

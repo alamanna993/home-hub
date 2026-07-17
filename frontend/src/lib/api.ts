@@ -131,6 +131,12 @@ export const getPastChores = () => api.get<PastChore[]>('/chores/past').then(r =
 
 export const clearPastChores = () => api.delete('/chores/past').then(r => r.data)
 
+export const updateChore = (id: number, data: { title?: string; icon?: string; assigned_to?: string; frequency?: string; day_of_week?: number }) =>
+  api.patch<Chore>(`/chores/${id}`, data).then(r => r.data)
+
+export const deleteChoreCompletion = (completionId: number) =>
+  api.delete(`/chores/completions/${completionId}`).then(r => r.data)
+
 export const createChore = (data: { title: string; description?: string; icon?: string; assigned_to?: string; frequency?: string; day_of_week?: number }) =>
   api.post<Chore>('/chores/', data).then(r => r.data)
 

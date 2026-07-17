@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Check, ClipboardList, History, Pencil, Plus, Trash2, UserPlus, X } from 'lucide-react'
+import { Check, ClipboardList, History, Pencil, Plus, RotateCcw, Trash2, UserPlus, X } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { getChores, createChore, completeChore, uncompleteChore, deleteChore, Chore, getFamily, createFamilyMember, updateFamilyMember, deleteFamilyMember, FamilyMember, getPastChores, clearPastChores, PastChore } from '../lib/api'
+import { getChores, createChore, completeChore, uncompleteChore, deleteChore, updateChore, deleteChoreCompletion, Chore, getFamily, createFamilyMember, updateFamilyMember, deleteFamilyMember, FamilyMember, getPastChores, clearPastChores, PastChore } from '../lib/api'
 import EmojiPicker from '../components/EmojiPicker'
 import { cn } from '../lib/utils'
 
@@ -33,6 +33,22 @@ export default function Chores() {
     getPastChores().then(setPast).catch(() => {})
   }
   useEffect(() => { load() }, [])
+
+  async function rename(choreId: number, currentTitle: string) {
+    const t = prompt('Rename chore:', currentTitle)?.trim()
+    if (!t || t === currentTitle) return
+    await updateChore(choreId, { title: t })
+    toast.success('Chore renamed')
+    load()
+  }
+
+  async function restore(p: PastChore) {
+    await deleteChoreCompletion(p.id)
+    toast.success(p.frequency === 'once'
+      ? `"${p.title}" is back on the chart`
+      : 'Check-off removed')
+    load()
+  }
 
   async function clearHistory() {
     if (!confirm('Clear the chore history? Finished one-time chores are removed for good.')) return
@@ -250,6 +266,10 @@ export default function Chores() {
                       className="absolute top-1 right-1 p-2 rounded-full bg-surface-card/80 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 text-surface-muted hover:text-red-400 transition-all">
                       <Trash2 size={14} />
                     </button>
+                    <button onClick={() => rename(chore.id, chore.title)}
+                      className="absolute top-1 left-1 p-2 rounded-full bg-surface-card/80 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 text-surface-muted hover:text-accent transition-all">
+                      <Pencil size={14} />
+                    </button>
                   </motion.div>
                 ))}
               </div>
@@ -272,7 +292,7 @@ export default function Chores() {
           </div>
           <div className="divide-y divide-surface-border">
             {(showAllPast ? past : past.slice(0, 8)).map(p => (
-              <div key={p.id} className="flex items-center gap-3 py-2 text-sm">
+              <div key={p.id} className="flex items-center gap-3 py-2 text-sm group">
                 <span className="text-xl w-7 text-center flex-shrink-0">{p.icon || '✅'}</span>
                 <span className="text-white flex-1 min-w-0 truncate">{p.title}</span>
                 {p.completed_by && <span className="text-surface-muted text-xs flex-shrink-0">🌟 {p.completed_by}</span>}
@@ -281,6 +301,14 @@ export default function Chores() {
                   {new Date(p.completed_at.endsWith('Z') ? p.completed_at : p.completed_at + 'Z')
                     .toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
                 </span>
+                <button onClick={() => rename(p.chore_id, p.title)} title="Rename chore"
+                  className="p-1.5 text-surface-muted hover:text-accent opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-all flex-shrink-0">
+                  <Pencil size={14} />
+                </button>
+                <button onClick={() => restore(p)} title="Wasn't done — undo this check-off"
+                  className="p-1.5 text-surface-muted hover:text-orange-400 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-all flex-shrink-0">
+                  <RotateCcw size={14} />
+                </button>
               </div>
             ))}
           </div>

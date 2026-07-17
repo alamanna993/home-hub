@@ -161,6 +161,18 @@ def clear_past_chores(db: Session = Depends(get_db)):
     return {"ok": True, "removed": removed}
 
 
+@router.delete("/completions/{completion_id}")
+def delete_completion(completion_id: int, db: Session = Depends(get_db)):
+    """Undo one recorded check-off ("turns out it wasn't done") — a finished
+    one-time chore returns to the chart when its completion goes away."""
+    comp = db.query(ChoreCompletion).filter(ChoreCompletion.id == completion_id).first()
+    if not comp:
+        raise HTTPException(status_code=404, detail="Completion not found")
+    db.delete(comp)
+    db.commit()
+    return {"ok": True}
+
+
 @router.post("/", status_code=201)
 def create_chore(data: ChoreCreate, db: Session = Depends(get_db)):
     if data.frequency not in FREQUENCIES:
