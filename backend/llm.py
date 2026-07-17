@@ -56,6 +56,7 @@ Enrichment rules for add_item — fill out everything you can, the user shouldn'
 
 Location rules for add_item:
 - Set "location" ONLY when the user explicitly says where the item is or goes. Never guess into "location".
+- "location" is always the ROOM. A spot inside a room goes into "sublocation" — if the user names a known spot ("put it in the spice pantry"), set location to its room and sublocation to the spot.
 - A location mentioned once in a list ("... for the freezer") applies only to the item(s) it clearly refers to.
 - When the user did NOT say where, set "suggested_location" to where that kind of item is usually stored — prefer one of the known locations above; otherwise propose a sensible new name (e.g. "Fridge" for milk, "Garage" for tools).
 
@@ -143,7 +144,8 @@ def _extract_json(text: str) -> dict:
 
 
 async def _parse_ollama(user_message: str, host: str, model: str, system_prompt: str) -> dict:
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    # Long shopping/book lists mean many JSON actions: allow time and tokens for all of them
+    async with httpx.AsyncClient(timeout=120.0) as client:
         r = await client.post(
             f"{host}/api/chat",
             json={
@@ -154,6 +156,7 @@ async def _parse_ollama(user_message: str, host: str, model: str, system_prompt:
                 ],
                 "stream": False,
                 "format": "json",
+                "options": {"num_predict": 4096},
             },
         )
         r.raise_for_status()
@@ -175,7 +178,7 @@ async def _parse_openai_compat(user_message: str, api_key: str, model: str, syst
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message},
         ],
-        max_tokens=1024,
+        max_tokens=4096,  # a long shopping/book list produces many actions
         **extra,
     )
     return _extract_json(response.choices[0].message.content)
@@ -186,7 +189,7 @@ async def _parse_claude(user_message: str, api_key: str, model: str, system_prom
     client = AsyncAnthropic(api_key=api_key)
     response = await client.messages.create(
         model=model,
-        max_tokens=1024,
+        max_tokens=4096,  # a long shopping/book list produces many actions
         system=system_prompt,
         messages=[{"role": "user", "content": user_message}],
     )
@@ -215,16 +218,18 @@ def _keyword_parse(message: str) -> list[dict]:
 
 
 def _known_locations(db) -> list[str]:
+    """Room names, with their sub-locations attached: 'Kitchen [spots: Spice Pantry]'."""
     if db is None:
         return []
     try:
         from models import Location
-        seen, names = set(), []
+        rooms: dict[str, list[str]] = {}
         for loc in db.query(Location).order_by(Location.name).all():
-            if loc.name.lower() not in seen:
-                seen.add(loc.name.lower())
-                names.append(loc.name)
-        return names[:20]
+            subs = rooms.setdefault(loc.name, [])
+            if loc.sublocation:
+                subs.append(loc.sublocation)
+        return [name + (f" [spots: {', '.join(subs)}]" if subs else "")
+                for name, subs in list(rooms.items())[:20]]
     except Exception:
         return []
 

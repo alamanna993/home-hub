@@ -18,6 +18,9 @@ AGENT_SYSTEM = """You are HomeHub, the family's home assistant. Today is {today}
 You have tools that read and MODIFY the household database. When the user wants something
 changed, do it: look the record up first if you need its exact name, call the right tool,
 then confirm in one short friendly sentence (it may show in a small Telegram bubble).
+When the user adds several things at once (a list of books, a shopping haul), call
+create_item once per item — never skip any, and fill in author/category from your
+own knowledge when the user didn't say.
 If a lookup returns several matches, ask which one they meant instead of guessing.
 Use ISO format for dates (YYYY-MM-DD) and datetimes (YYYY-MM-DDTHH:MM:SS).
 If nothing needs changing, just answer from the household snapshot below.
@@ -39,6 +42,13 @@ TOOLS = [
     # --- inventory ---
     _tool("find_items", "Search inventory items by name. Returns matches with id, quantity and location.",
           {"search": _S("part of the item name")}, ["search"]),
+    _tool("create_item", "Add ONE new item to the inventory. For a list of things, call this once per item.",
+          {"name": _S("item name"), "quantity": {"type": "number", "description": "how many (default 1)"},
+           "unit": _S("e.g. bottles, boxes, lbs"), "location": _S("room it's stored in, e.g. Office"),
+           "sublocation": _S("spot within the room, e.g. Spice Pantry"),
+           "category": _S("best-fit category, e.g. Books / Media"),
+           "author": _S("author/artist/creator for books & media"),
+           "notes": _S("extra details"), "expiration_date": _S("YYYY-MM-DD for food")}, ["name"]),
     _tool("update_item", "Update an inventory item found by name: quantity, location, category, author/artist, notes, or expiration date. Only pass fields to change.",
           {"name": _S("item name to find"), "quantity": {"type": "number", "description": "new quantity"},
            "location": _S("new location name"), "sublocation": _S("new sub-location"),
@@ -134,6 +144,29 @@ async def execute_tool(name: str, args: dict, db, source: str) -> dict | list | 
             items = db.query(Item).filter(Item.name.ilike(f"%{args['search']}%")).limit(10).all()
             return [{"id": i.id, "name": i.name, "quantity": i.quantity, "unit": i.unit,
                      "location": _loc_str(i.location)} for i in items] or "No matching items."
+
+        if name == "create_item":
+            from routers.chat import find_or_create_category
+            item = Item(
+                name=args["name"].strip(),
+                quantity=args.get("quantity") if args.get("quantity") is not None else 1,
+                unit=args.get("unit"),
+                author=args.get("author"),
+                location_id=find_or_create_location(args.get("location"), args.get("sublocation"), db),
+                category_id=find_or_create_category(args.get("category"), db),
+                notes=args.get("notes"),
+            )
+            if args.get("expiration_date"):
+                try:
+                    item.expiration_date = date.fromisoformat(args["expiration_date"][:10])
+                except ValueError:
+                    return "expiration_date must be YYYY-MM-DD."
+            db.add(item)
+            db.add(AuditLog(action="created", item_name=item.name, changed_by=source,
+                            details=f"qty: {item.quantity:g} {item.unit or ''}".strip()))
+            db.commit()
+            return f"Added {item.name}" + (f" by {item.author}" if item.author else "") + \
+                   f" to {_loc_str(item.location)}."
 
         if name == "update_item":
             item = db.query(Item).filter(Item.name.ilike(f"%{args['name']}%")).first()

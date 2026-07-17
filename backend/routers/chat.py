@@ -104,12 +104,33 @@ def item_line(item: Item) -> str:
 def find_or_create_location(name: str, sublocation: str | None, db: Session) -> int | None:
     if not name:
         return None
-    loc = db.query(Location).filter(Location.name.ilike(f"%{name}%")).first()
-    if not loc:
-        loc = Location(name=name.title(), sublocation=sublocation)
-        db.add(loc)
-        db.commit()
-        db.refresh(loc)
+    if sublocation:
+        # A specific spot inside a room ("Kitchen / Spice Pantry") is its own row
+        loc = (db.query(Location)
+               .filter(Location.name.ilike(f"%{name}%"), Location.sublocation.ilike(f"%{sublocation}%"))
+               .first())
+        if not loc:
+            parent = db.query(Location).filter(Location.name.ilike(f"%{name}%")).first()
+            loc = Location(name=parent.name if parent else name.strip().title(),
+                           sublocation=sublocation.strip().title(),
+                           icon=parent.icon if parent else None)
+            db.add(loc)
+            db.commit()
+            db.refresh(loc)
+        return loc.id
+    # Room name — prefer the plain room row over its sub-location rows
+    loc = (db.query(Location).filter(Location.name.ilike(f"%{name}%"))
+           .order_by(Location.sublocation.isnot(None)).first())
+    if loc:
+        return loc.id
+    # Maybe they named a sub-location directly ("put it in the spice pantry")
+    loc = db.query(Location).filter(Location.sublocation.ilike(f"%{name}%")).first()
+    if loc:
+        return loc.id
+    loc = Location(name=name.strip().title())
+    db.add(loc)
+    db.commit()
+    db.refresh(loc)
     return loc.id
 
 
@@ -123,6 +144,64 @@ def find_or_create_category(name: str, db: Session) -> int | None:
         db.commit()
         db.refresh(cat)
     return cat.id
+
+
+# ---------------------------------------------------------------------------
+# Deterministic bulk-list parsing: "Add these books to the office:" followed by
+# one item per line. Long lists must not depend on a small LLM emitting 17
+# perfect JSON actions in one go — parse the lines ourselves.
+# ---------------------------------------------------------------------------
+BULK_INTENT_RE = re.compile(r"\b(add|adding|bought|buying|got|put|putting|picked up|new)\b", re.I)
+BULK_AUTHOR_SPLIT = re.compile(r"\s+(?:—|–|--|-)\s+")  # dash needs spaces around it, so "Modern-Day" survives
+BULK_LOCATION_RE = re.compile(r"\b(?:to|in|into|on)\s+(?:the\s+|my\s+)?([A-Za-z][\w' ]{0,40}?)\s*$", re.I)
+BULK_BULLET_RE = re.compile(r"^\s*(?:[-•*+·]|\d{1,3}[.)])\s+")
+
+BULK_CATEGORY_HINTS = (
+    (re.compile(r"\bbooks?\b", re.I), "Books / Media"),
+    (re.compile(r"\b(movies?|dvds?|blu-?rays?|vinyls?|records?|cds?|games?)\b", re.I), "Books / Media"),
+    (re.compile(r"\bgroceries\b", re.I), "Groceries"),
+    (re.compile(r"\btools?\b", re.I), "Tools"),
+)
+
+
+def parse_bulk_list(message: str) -> list[dict] | None:
+    """If the message is an add-intent header plus a multi-line list, build the
+    add_item actions directly. Returns None when the shape doesn't match."""
+    lines = [l.strip() for l in message.splitlines() if l.strip()]
+    if len(lines) < 3:
+        return None
+    header, rows = lines[0], lines[1:]
+    if not BULK_INTENT_RE.search(header):
+        return None
+    # Only clearly list-shaped messages: "add these to the office:" — a plain
+    # multi-line sentence with an add-verb in it must still go to the LLM.
+    if not (header.rstrip().endswith(":") or re.search(r"\b(below|following|these|this list)\b", header, re.I)):
+        return None
+    location = None
+    m = BULK_LOCATION_RE.search(header.rstrip(" :.!"))
+    if m:
+        location = m.group(1).strip()
+    category = next((cat for rx, cat in BULK_CATEGORY_HINTS if rx.search(header)), None)
+    actions = []
+    for row in rows:
+        row = BULK_BULLET_RE.sub("", row).strip()
+        if not row or not re.search(r"[A-Za-z0-9]", row):
+            continue
+        parts = BULK_AUTHOR_SPLIT.split(row, maxsplit=1)
+        name = parts[0].strip(" .")
+        author = parts[1].strip(" .") if len(parts) > 1 else None
+        if not name:
+            continue
+        actions.append({"action": "add_item", "item": name, "location": location,
+                        "sublocation": None, "category": category, "author": author,
+                        "quantity": 1, "confidence": 1.0})
+    if len(actions) < 2:
+        return None
+    # No category named, but the lines read "Title — Author": that's books/media
+    if category is None and sum(1 for a in actions if a["author"]) >= len(actions) / 2:
+        for a in actions:
+            a["category"] = "Books / Media"
+    return actions
 
 
 WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
@@ -186,7 +265,7 @@ async def conversational_reply(req: "ChatRequest", db: Session, parsed: dict) ->
 # ---------------------------------------------------------------------------
 PENDING: dict[str, dict] = {}
 PENDING_TTL_SECONDS = 600
-MAX_ACTIONS_PER_MESSAGE = 15
+MAX_ACTIONS_PER_MESSAGE = 40
 
 INTENT_WORDS = re.compile(
     r"\b(add|added|bought|buy|remove|removed|delete|throw|move|moved|where|what|when|find|"
@@ -380,7 +459,8 @@ async def handle_action(parsed: dict, req: ChatRequest, db: Session) -> dict:
         wants_tracking = re.search(r"warn|alert|remind|notify|low|down to|running out|restock|track", req.message, re.I)
         threshold = parsed.get("low_stock_threshold") if wants_tracking else None
         data = ItemCreate(
-            name=item_name.title(),
+            # .title() mangles typed titles ("Pursuit of God" → "Pursuit Of God") — only fix all-lowercase input
+            name=item_name.title() if item_name == item_name.lower() else item_name,
             description=parsed.get("description"),
             quantity=parsed.get("quantity", 1),
             unit=parsed.get("unit"),
@@ -610,7 +690,7 @@ async def chat(req: ChatRequest, db: Session = Depends(get_db)):
             return resolved
         PENDING.pop(req.source, None)  # not an answer — drop the question and process normally
 
-    actions = (await parse_message(req.message, db))[:MAX_ACTIONS_PER_MESSAGE]
+    actions = (parse_bulk_list(req.message) or await parse_message(req.message, db))[:MAX_ACTIONS_PER_MESSAGE]
 
     if len(actions) == 1:
         parsed = actions[0]
