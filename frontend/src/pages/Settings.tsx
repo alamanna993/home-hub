@@ -298,8 +298,8 @@ function ProviderFields({ api, provider, modelRefresh }: { api: SettingsApi; pro
 function BrainHealth({ brain }: { brain?: Brain | null }) {
   if (!brain) return null
   const paused = brain.paused_until && brain.paused_until * 1000 > Date.now()
+  if (brain.provider === 'codex' && (!brain.ready || !paused)) return null  // the Codex account row says it
   if (brain.ready && !paused) {
-    if (brain.provider === 'codex') return null  // the Connected row says it
     return <p className="flex items-center gap-1.5 text-ui text-muted"><Check size={14} className="text-action" aria-hidden />
       Ready{brain.detail ? `: ${brain.detail}` : ''}</p>
   }

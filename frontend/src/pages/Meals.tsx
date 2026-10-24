@@ -80,7 +80,7 @@ export default function Meals() {
   const isThisWeek = ymd(weekStart) === ymd(mondayOf(new Date()))
 
   const MealChip = ({ m, compact }: { m: Meal; compact?: boolean }) => (
-    <div className="group flex items-start gap-1.5 rounded-control border border-line bg-canvas px-2 py-1.5">
+    <div className="group relative flex items-start gap-1.5 rounded-control border border-line bg-canvas px-2 py-1.5">
       {m.recipe_id && <BookOpen size={12} className="mt-0.5 shrink-0 text-action" aria-label="Saved recipe" />}
       <div className="min-w-0 flex-1">
         {m.recipe_id
@@ -89,7 +89,8 @@ export default function Meals() {
         {m.notes && <p className="truncate text-xs text-muted">{m.notes}</p>}
       </div>
       <IconButton icon={X} label={`Remove ${m.title}`} size="sm"
-        className="-my-1 -mr-1 h-6 w-6 shrink-0 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 lg:focus:opacity-100"
+        className={cn('h-6 w-6 shrink-0 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 lg:focus:opacity-100',
+          compact ? 'absolute right-0.5 top-0.5 bg-canvas' : '-my-1 -mr-1')}
         onClick={() => remove(m)} />
     </div>
   )

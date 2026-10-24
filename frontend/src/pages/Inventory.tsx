@@ -281,7 +281,7 @@ export default function Inventory() {
                 <span className="mt-0.5 w-5 text-center leading-none" aria-hidden>{i.category?.icon || '📦'}</span>
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium text-ink">{i.name}</p>
-                  <p className="truncate text-ui text-muted">{where(i)}</p>
+                  <p className="truncate text-ui text-muted">{i.location ? where(i) : i.category?.name || 'No location'}</p>
                   <div className="mt-1 empty:hidden"><ItemStatus item={i} /></div>
                 </div>
                 <span className={cn('text-sm tnum', i.is_low_stock ? 'font-medium text-warn' : 'text-ink')}>

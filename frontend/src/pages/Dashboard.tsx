@@ -162,12 +162,13 @@ export default function Dashboard() {
           ) : (
             <ul className="divide-y divide-line">
               {agenda.map(r => (
-                <li key={r.key} className="grid grid-cols-[4.5rem_1rem_1fr_auto] items-center gap-3 px-4 py-2.5 text-sm">
-                  <span className="text-ui text-muted tnum">{r.time ?? ''}</span>
+                <li key={r.key} className="grid grid-cols-[1rem_1fr_auto] items-center gap-3 px-4 py-2.5 text-sm sm:grid-cols-[4.5rem_1rem_1fr_auto]">
+                  <span className="hidden text-ui text-muted tnum sm:block">{r.time ?? ''}</span>
                   <span className="flex justify-center">{r.icon}</span>
                   <span className={cn('min-w-0 truncate text-ink', r.done && 'text-muted line-through')}>{r.title}</span>
                   <span className="flex items-center gap-1.5 text-ui text-muted">
-                    {r.done && <CheckCircle2 size={14} className="text-action" aria-label="Done" />}{r.meta}
+                    {r.done && <CheckCircle2 size={14} className="text-action" aria-label="Done" />}
+                    {r.time && <span className="tnum sm:hidden">{r.time}</span>}{r.meta}
                   </span>
                 </li>
               ))}
