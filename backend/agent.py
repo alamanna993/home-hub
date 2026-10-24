@@ -14,7 +14,7 @@ logger = logging.getLogger("homehub-agent")
 
 MAX_TURNS = 8
 
-AGENT_SYSTEM = """You are HomeHub, the family's home assistant. Today is {today} ({weekday}).
+AGENT_SYSTEM = """You are Emerald, the family's assistant in HomeHub, their home app. Today is {today} ({weekday}).
 You have tools that read and MODIFY the household database. When the user wants something
 changed, do it: look the record up first if you need its exact name, call the right tool,
 then confirm in one short friendly sentence (it may show in a small Telegram bubble).
@@ -537,32 +537,37 @@ async def _agent_claude(system: str, messages: list, api_key: str, model: str, d
     return None
 
 
-async def run_agent(user_message: str, db=None, source: str = "chat", context: str = "") -> str | None:
-    """Run the tool loop with the configured provider. Returns the final reply text,
-    or None when no provider is set / the loop didn't produce an answer."""
-    provider = _db_setting(db, "llm_provider", env_settings.llm_provider)
-    if provider in ("", "none"):
-        return None
+async def _agent_with(provider: str, user_message: str, db, source: str, system: str) -> str | None:
+    from llm import provider_model, codex_options
+    if provider == "codex":
+        from codex_brain import codex_agent
+        return await codex_agent(system, user_message, source, **codex_options(db))
 
-    system = _system_prompt(context)
-
+    model = provider_model(provider, db)
     if provider == "claude":
         api_key = _db_setting(db, "anthropic_api_key", env_settings.anthropic_api_key)
-        model = _db_setting(db, "claude_model", env_settings.claude_model) or "claude-haiku-4-5-20251001"
         return await _agent_claude(system, [{"role": "user", "content": user_message}], api_key, model, db, source)
 
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user_message}]
-
     if provider == "openai":
         api_key = _db_setting(db, "openai_api_key", env_settings.openai_api_key)
-        model = _db_setting(db, "openai_model", env_settings.openai_model) or "gpt-4o-mini"
         return await _agent_openai(messages, api_key, model, db, source)
-
     if provider == "lmstudio":
         host = _db_setting(db, "lmstudio_host", env_settings.lmstudio_host)
-        model = _db_setting(db, "lmstudio_model", env_settings.lmstudio_model) or "local-model"
         return await _agent_openai(messages, "lm-studio", model, db, source, base_url=f"{host}/v1")
-
     host = _db_setting(db, "ollama_host", env_settings.ollama_host)
-    model = _db_setting(db, "ollama_model", env_settings.ollama_model)
     return await _agent_ollama(messages, host, model, db, source)
+
+
+async def run_agent(user_message: str, db=None, source: str = "chat", context: str = "") -> str | None:
+    """Run the tool loop on Emerald's primary brain, falling back to the backup.
+    Returns the final reply text, or None when no brain produced an answer."""
+    from llm import with_fallback, brain_chain
+    if not brain_chain(db):
+        return None
+    system = _system_prompt(context)
+    try:
+        return await with_fallback(db, lambda p: _agent_with(p, user_message, db, source, system))
+    except Exception as e:
+        logger.warning("agent failed on every brain: %s", e)
+        return None

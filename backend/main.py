@@ -86,6 +86,19 @@ def seed_defaults(db: Session):
     for key, value in default_settings:
         if not db.query(Setting).filter_by(key=key).first():
             db.add(Setting(key=key, value=value))
+    db.flush()
+
+    # Emerald v2 (once): Codex becomes the primary brain and whatever local model was
+    # in use becomes the automatic backup. Until Codex is signed in, every message
+    # simply goes to the backup.
+    if not db.query(Setting).filter_by(key="brains_v2").first():
+        current = db.query(Setting).filter_by(key="llm_provider").first()
+        previous = (current.value if current else "") or "none"
+        current.value = "codex"
+        backup = previous if previous not in ("codex", "none", "") else "ollama"
+        db.add(Setting(key="llm_fallback_provider", value=backup))
+        db.add(Setting(key="codex_reasoning_effort", value="low"))
+        db.add(Setting(key="brains_v2", value="true"))
 
     db.commit()
 

@@ -20,7 +20,7 @@ bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
 async def call_backend(path: str, method: str = "GET", json: dict = None) -> dict:
     headers = {"X-API-Key": INTERNAL_API_KEY} if INTERNAL_API_KEY else {}
-    async with httpx.AsyncClient(timeout=30.0, headers=headers) as client:
+    async with httpx.AsyncClient(timeout=180.0, headers=headers) as client:
         if method == "POST":
             r = await client.post(f"{BACKEND_URL}{path}", json=json)
         elif method == "PATCH":

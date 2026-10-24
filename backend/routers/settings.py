@@ -17,8 +17,12 @@ SETTING_DEFINITIONS = [
     {"key": "low_stock_alert_channel", "description": "Discord channel ID for automatic low-stock alerts (leave blank to disable)", "secret": False},
     {"key": "site_title", "description": "Dashboard title shown in the sidebar", "secret": False},
     {"key": "ics_urls", "description": "External calendar feeds (iCal/ICS URLs from Google or Outlook), comma-separated. Events appear read-only on the calendar.", "secret": True},
-    # LLM provider selection
-    {"key": "llm_provider", "description": "AI provider: ollama | lmstudio | openai | claude", "secret": False},
+    # Emerald's brains: primary + automatic backup
+    {"key": "llm_provider", "description": "Emerald's primary brain: codex | ollama | lmstudio | openai | claude", "secret": False},
+    {"key": "llm_fallback_provider", "description": "Backup brain used when the primary fails: ollama | lmstudio | openai | claude | none", "secret": False},
+    # Codex (ChatGPT subscription via the Codex CLI)
+    {"key": "codex_model", "description": "Codex model (leave blank for Codex's default)", "secret": False},
+    {"key": "codex_reasoning_effort", "description": "How hard Codex thinks: low is fastest for chat (low | medium | high)", "secret": False},
     # Ollama
     {"key": "ollama_host", "description": "Ollama server URL (e.g. http://host.docker.internal:11434)", "secret": False},
     {"key": "ollama_model", "description": "Ollama model name (e.g. llama3.2, mistral)", "secret": False},
@@ -478,10 +482,109 @@ def complete_setup(db: Session = Depends(get_db), _: User = Depends(require_admi
 
 
 @router.post("/test-llm")
-async def test_llm(db: Session = Depends(get_db), _: User = Depends(require_admin)):
-    """Fire a tiny prompt at the configured provider to confirm it responds."""
-    from llm import generate_response
-    reply = await generate_response("Reply with the single word: OK", db=db)
+async def test_llm(target: str = "primary", db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    """Fire a tiny prompt at one of Emerald's brains (primary or backup) to confirm it
+    responds. A successful test also clears that brain's skip-for-a-while state."""
+    from llm import generate_response, brain_chain, reset_breaker, brain_label, _db_setting
+    if target == "backup":
+        provider = _db_setting(db, "llm_fallback_provider", "ollama")
+    else:
+        chain = brain_chain(db)
+        provider = chain[0] if chain else ""
+    if provider in ("", "none"):
+        return {"ok": False, "error": f"No {target} brain is configured."}
+    reply = await generate_response("Reply with the single word: OK", db=db, only=provider)
     if reply.startswith("I couldn't process that right now."):
-        return {"ok": False, "error": reply}
-    return {"ok": True, "reply": reply[:200]}
+        return {"ok": False, "provider": provider, "error": reply}
+    reset_breaker(provider)
+    return {"ok": True, "provider": provider, "label": brain_label(provider, db), "reply": reply[:200]}
+
+
+# ---- Emerald's brains: status + Codex sign-in ----
+
+_BACKUP_PROBE: dict = {"at": 0.0, "key": "", "ok": False, "detail": ""}
+
+
+async def _probe_backup(provider: str, db) -> tuple[bool, str]:
+    """Cheap reachability check for the backup brain, cached for a minute."""
+    import time
+    import httpx
+    from llm import _db_setting
+    key = provider + _db_setting(db, "ollama_host", "") + _db_setting(db, "lmstudio_host", "")
+    if key == _BACKUP_PROBE["key"] and time.time() - _BACKUP_PROBE["at"] < 60:
+        return _BACKUP_PROBE["ok"], _BACKUP_PROBE["detail"]
+    ok, detail = True, ""
+    try:
+        if provider == "ollama":
+            host = _db_setting(db, "ollama_host", env_settings.ollama_host)
+            async with httpx.AsyncClient(timeout=4.0) as client:
+                (await client.get(f"{host}/api/tags")).raise_for_status()
+        elif provider == "lmstudio":
+            host = _db_setting(db, "lmstudio_host", env_settings.lmstudio_host)
+            async with httpx.AsyncClient(timeout=4.0) as client:
+                (await client.get(f"{host}/v1/models")).raise_for_status()
+        elif provider == "openai":
+            ok = bool(_db_setting(db, "openai_api_key", env_settings.openai_api_key))
+            detail = "" if ok else "No OpenAI API key saved."
+        elif provider == "claude":
+            ok = bool(_db_setting(db, "anthropic_api_key", env_settings.anthropic_api_key))
+            detail = "" if ok else "No Anthropic API key saved."
+    except Exception as e:  # noqa: BLE001
+        ok, detail = False, f"Can't reach it: {e}"
+    _BACKUP_PROBE.update(at=time.time(), key=key, ok=ok, detail=detail)
+    return ok, detail
+
+
+async def _brain_entry(provider: str, db) -> dict | None:
+    import time
+    from llm import BREAKER, LAST_ERROR, brain_label, provider_model
+    if provider in ("", "none"):
+        return None
+    if provider == "codex":
+        from codex_brain import login_status
+        status = await login_status()
+        ready, detail = status["signed_in"], status["detail"]
+    else:
+        ready, detail = await _probe_backup(provider, db)
+    tripped = BREAKER.get(provider)
+    paused_until = tripped["until"] if tripped and tripped["until"] > time.time() else None
+    return {"provider": provider, "label": brain_label(provider, db),
+            "model": provider_model(provider, db) or None, "ready": ready, "detail": detail,
+            "paused_until": paused_until, "last_error": LAST_ERROR.get(provider)}
+
+
+@router.get("/brain-status")
+async def brain_status(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    """Which brain Emerald is using right now — shown in the sidebar and Settings."""
+    import time
+    from llm import _db_setting
+    primary = await _brain_entry(_db_setting(db, "llm_provider", env_settings.llm_provider), db)
+    backup_provider = _db_setting(db, "llm_fallback_provider", "ollama")
+    backup = None if primary and backup_provider == primary["provider"] else await _brain_entry(backup_provider, db)
+    if primary and primary["ready"] and not primary["paused_until"]:
+        active = "primary"
+    elif backup and backup["ready"]:
+        active = "backup"
+    else:
+        active = "primary" if primary else None
+    return {"primary": primary, "backup": backup, "active": active, "checked_at": time.time()}
+
+
+@router.post("/codex/login")
+async def codex_login(_: User = Depends(require_admin)):
+    """Start ChatGPT device-code sign-in; returns the link and one-time code to show."""
+    from codex_brain import start_login
+    return await start_login()
+
+
+@router.get("/codex/login")
+async def codex_login_state(_: User = Depends(require_admin)):
+    from codex_brain import LOGIN, login_status
+    status = await login_status(force=LOGIN["status"] == "pending")
+    return {**LOGIN, "signed_in": status["signed_in"], "detail": status["detail"]}
+
+
+@router.post("/codex/logout")
+async def codex_logout(_: User = Depends(require_admin)):
+    from codex_brain import logout
+    return await logout()

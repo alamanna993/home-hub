@@ -63,6 +63,8 @@ services:
     volumes:
       # Lets the setup wizard / Settings page save DATA_PATH & BACKUP_PATH for you
       - ./.env:/app/host.env
+      # Codex sign-in (Emerald's primary brain) — survives image updates
+      - codex_home:/data/codex
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     depends_on:
@@ -111,3 +113,4 @@ services:
 
 volumes:
   postgres_data:
+  codex_home:

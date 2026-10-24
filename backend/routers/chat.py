@@ -439,7 +439,8 @@ async def handle_action(parsed: dict, req: ChatRequest, db: Session) -> dict:
         # Trust "location" only if the user actually said it — models like to guess.
         # An unstated location becomes a suggestion that needs the user's OK.
         loc_name = parsed.get("location")
-        if loc_name and loc_name.lower() not in req.message.lower():
+        said_spot = (parsed.get("sublocation") or "").lower() in req.message.lower() if parsed.get("sublocation") else False
+        if loc_name and loc_name.lower() not in req.message.lower() and not said_spot:
             if not parsed.get("suggested_location"):
                 parsed["suggested_location"] = loc_name
             loc_name = None
@@ -689,6 +690,13 @@ async def handle_action(parsed: dict, req: ChatRequest, db: Session) -> dict:
 
 @router.post("/")
 async def chat(req: ChatRequest, db: Session = Depends(get_db)):
+    from llm import current_brain
+    result = await _chat(req, db)
+    result["brain"] = current_brain()  # which of Emerald's brains answered, if any
+    return result
+
+
+async def _chat(req: ChatRequest, db: Session) -> dict:
     # An open "where should I put that?" question — try the message as its answer first.
     pending = get_pending(req.source)
     if pending:

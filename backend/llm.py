@@ -1,4 +1,7 @@
 import json
+import time
+from contextvars import ContextVar
+
 import httpx
 from database import settings as env_settings
 
@@ -197,7 +200,7 @@ async def _parse_claude(user_message: str, api_key: str, model: str, system_prom
     return _extract_json(response.content[0].text)
 
 
-NO_AI_NOTICE = ("No AI model is configured yet — set one up in Settings → AI Provider. "
+NO_AI_NOTICE = ("No AI model is configured yet — set one up in Settings → Emerald. "
                 "Simple lookups still work: try 'where is <item>' or 'what's running low'.")
 
 
@@ -255,92 +258,205 @@ def _known_categories(db) -> list[str]:
         return []
 
 
+# ---------------------------------------------------------------------------
+# Emerald's brains: the primary provider (Codex by default) with an automatic
+# backup. A failing provider is skipped for a few minutes so every message
+# doesn't wait out the same timeout.
+# ---------------------------------------------------------------------------
+PROVIDER_LABELS = {"codex": "Codex", "ollama": "Ollama", "lmstudio": "LM Studio",
+                   "openai": "OpenAI", "claude": "Claude"}
+BREAKER_SECONDS = 300
+BREAKER: dict[str, dict] = {}  # provider -> {"until": ts, "error": str}
+LAST_ERROR: dict[str, str] = {}
+_BRAIN: ContextVar[dict | None] = ContextVar("emerald_brain", default=None)
+
+
+class BrainError(RuntimeError):
+    pass
+
+
+def reset_breaker(provider: str | None = None):
+    if provider:
+        BREAKER.pop(provider, None)
+    else:
+        BREAKER.clear()
+
+
+def current_brain() -> dict | None:
+    """Which provider answered the last AI call in this request (for "Answered by …")."""
+    return _BRAIN.get()
+
+
+def brain_chain(db) -> list[str]:
+    primary = _db_setting(db, "llm_provider", env_settings.llm_provider) or "none"
+    if primary == "none":
+        return []
+    backup = _db_setting(db, "llm_fallback_provider", "ollama") or "none"
+    return [primary] + ([backup] if backup not in ("none", primary) else [])
+
+
+def provider_model(provider: str, db) -> str:
+    if provider == "codex":
+        return _db_setting(db, "codex_model", "")
+    if provider == "claude":
+        return _db_setting(db, "claude_model", env_settings.claude_model) or "claude-haiku-4-5-20251001"
+    if provider == "openai":
+        return _db_setting(db, "openai_model", env_settings.openai_model) or "gpt-4o-mini"
+    if provider == "lmstudio":
+        return _db_setting(db, "lmstudio_model", env_settings.lmstudio_model) or "local-model"
+    return _db_setting(db, "ollama_model", env_settings.ollama_model)
+
+
+def brain_label(provider: str, db) -> str:
+    """Human name for a brain: 'Codex', 'hermes3' (local models go by model name)."""
+    if provider in ("ollama", "lmstudio"):
+        return (provider_model(provider, db) or PROVIDER_LABELS[provider]).split(":")[0]
+    return PROVIDER_LABELS.get(provider, provider)
+
+
+def codex_options(db) -> dict:
+    return {"model": _db_setting(db, "codex_model", "") or None,
+            "effort": _db_setting(db, "codex_reasoning_effort", "low") or None}
+
+
+def _set_brain(provider: str, db, fallback: bool):
+    _BRAIN.set({"provider": provider, "label": brain_label(provider, db),
+                "model": provider_model(provider, db) or None, "fallback": fallback})
+
+
+async def with_fallback(db, op):
+    """Run `await op(provider)` on the primary brain, then the backup if it fails.
+    Raises BrainError when every brain failed (or none is configured)."""
+    chain = brain_chain(db)
+    if not chain:
+        raise BrainError("No AI provider is configured.")
+    errors = []
+    for i, provider in enumerate(chain):
+        last = i == len(chain) - 1
+        tripped = BREAKER.get(provider)
+        if tripped and tripped["until"] > time.time() and not last:
+            errors.append(f"{provider}: skipped ({tripped['error']})")
+            continue
+        try:
+            result = await op(provider)
+            if result is None or result == "":
+                raise BrainError("empty reply")
+        except Exception as e:  # noqa: BLE001 — any failure moves on to the backup
+            message = str(e) or e.__class__.__name__
+            LAST_ERROR[provider] = message
+            if not last:
+                BREAKER[provider] = {"until": time.time() + BREAKER_SECONDS, "error": message[:200]}
+            errors.append(f"{provider}: {message}")
+            continue
+        BREAKER.pop(provider, None)
+        LAST_ERROR.pop(provider, None)
+        _set_brain(provider, db, fallback=i > 0)
+        return result
+    raise BrainError("; ".join(errors))
+
+
+def _field(*types):
+    return {"type": list(types) + ["null"]}
+
+
+# Strict JSON schema for Codex's structured output — every key required, nullable.
+ACTION_FIELDS = {
+    "action": {"type": "string"}, "item": _field("string"), "location": _field("string"),
+    "suggested_location": _field("string"), "sublocation": _field("string"),
+    "category": _field("string"), "quantity": _field("number"), "unit": _field("string"),
+    "author": _field("string"), "description": _field("string"), "notes": _field("string"),
+    "low_stock_threshold": _field("number"), "track_stock": _field("boolean"),
+    "expires": _field("string"), "datetime": _field("string"), "person": _field("string"),
+    "frequency": _field("string"), "icon": _field("string"), "confidence": _field("number"),
+}
+ACTIONS_SCHEMA = {
+    "type": "object", "additionalProperties": False, "required": ["actions"],
+    "properties": {"actions": {"type": "array", "items": {
+        "type": "object", "additionalProperties": False,
+        "required": list(ACTION_FIELDS), "properties": ACTION_FIELDS}}},
+}
+
+
+async def _parse_with(provider: str, db, user_message: str, system_prompt: str) -> dict:
+    if provider == "codex":
+        from codex_brain import codex_parse
+        return await codex_parse(system_prompt, user_message, ACTIONS_SCHEMA, **codex_options(db))
+    model = provider_model(provider, db)
+    if provider == "claude":
+        api_key = _db_setting(db, "anthropic_api_key", env_settings.anthropic_api_key)
+        return await _parse_claude(user_message, api_key, model, system_prompt)
+    if provider == "openai":
+        api_key = _db_setting(db, "openai_api_key", env_settings.openai_api_key)
+        return await _parse_openai_compat(user_message, api_key, model, system_prompt)
+    if provider == "lmstudio":
+        host = _db_setting(db, "lmstudio_host", env_settings.lmstudio_host)
+        return await _parse_openai_compat(user_message, "lm-studio", model, system_prompt,
+                                          base_url=f"{host}/v1", json_mode=False)
+    host = _db_setting(db, "ollama_host", env_settings.ollama_host)
+    return await _parse_ollama(user_message, host, model, system_prompt)
+
+
 async def parse_message(user_message: str, db=None) -> list[dict]:
     """Parse a chat message into one or more action dicts."""
+    if not brain_chain(db):
+        return _keyword_parse(user_message)
+    system_prompt = get_system_prompt(locations=_known_locations(db), family=_known_family(db),
+                                      categories=_known_categories(db))
     try:
-        provider = _db_setting(db, "llm_provider", env_settings.llm_provider)
-
-        if provider in ("", "none"):
-            return _keyword_parse(user_message)
-
-        system_prompt = get_system_prompt(locations=_known_locations(db), family=_known_family(db),
-                                          categories=_known_categories(db))
-
-        if provider == "claude":
-            api_key = _db_setting(db, "anthropic_api_key", env_settings.anthropic_api_key)
-            model = _db_setting(db, "claude_model", env_settings.claude_model) or "claude-haiku-4-5-20251001"
-            raw = await _parse_claude(user_message, api_key, model, system_prompt)
-
-        elif provider == "openai":
-            api_key = _db_setting(db, "openai_api_key", env_settings.openai_api_key)
-            model = _db_setting(db, "openai_model", env_settings.openai_model) or "gpt-4o-mini"
-            raw = await _parse_openai_compat(user_message, api_key, model, system_prompt)
-
-        elif provider == "lmstudio":
-            host = _db_setting(db, "lmstudio_host", env_settings.lmstudio_host)
-            model = _db_setting(db, "lmstudio_model", env_settings.lmstudio_model) or "local-model"
-            raw = await _parse_openai_compat(user_message, "lm-studio", model, system_prompt, base_url=f"{host}/v1", json_mode=False)
-
-        else:  # ollama
-            host = _db_setting(db, "ollama_host", env_settings.ollama_host)
-            model = _db_setting(db, "ollama_model", env_settings.ollama_model)
-            raw = await _parse_ollama(user_message, host, model, system_prompt)
-
+        raw = await with_fallback(db, lambda p: _parse_with(p, db, user_message, system_prompt))
         return _normalize_actions(raw)
-
     except Exception as e:
         return [{"action": "unknown", "error": str(e), "confidence": 0}]
 
 
-async def generate_response(prompt: str, context: str = "", db=None) -> str:
+PERSONA = ("You are Emerald, the family's friendly assistant in HomeHub, their home app. Be warm and "
+           "concise — replies may show in a small chat bubble or Telegram message.")
+
+
+async def _chat_with(provider: str, db, messages: list[dict]) -> str:
+    system, prompt = messages[0]["content"], messages[-1]["content"]
+    if provider == "codex":
+        from codex_brain import codex_chat
+        return await codex_chat(system, prompt, **codex_options(db))
+    model = provider_model(provider, db)
+    if provider == "claude":
+        from anthropic import AsyncAnthropic
+        client = AsyncAnthropic(api_key=_db_setting(db, "anthropic_api_key", env_settings.anthropic_api_key))
+        r = await client.messages.create(model=model, max_tokens=512, system=system,
+                                         messages=[{"role": "user", "content": prompt}])
+        return r.content[0].text
+    if provider in ("openai", "lmstudio"):
+        from openai import AsyncOpenAI
+        if provider == "openai":
+            client = AsyncOpenAI(api_key=_db_setting(db, "openai_api_key", env_settings.openai_api_key))
+        else:
+            host = _db_setting(db, "lmstudio_host", env_settings.lmstudio_host)
+            client = AsyncOpenAI(api_key="lm-studio", base_url=f"{host}/v1")
+        r = await client.chat.completions.create(model=model, messages=messages, max_tokens=512)
+        return r.choices[0].message.content
+    host = _db_setting(db, "ollama_host", env_settings.ollama_host)
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        r = await client.post(f"{host}/api/chat", json={"model": model, "messages": messages, "stream": False})
+        r.raise_for_status()
+        return r.json()["message"]["content"]
+
+
+async def generate_response(prompt: str, context: str = "", db=None, only: str | None = None) -> str:
+    """Plain conversational reply. `only` pins one provider (Settings → Test)."""
+    if not brain_chain(db) and not only:
+        return NO_AI_NOTICE
+    system = PERSONA
+    if context:
+        system += (" Use this live household data to answer questions about inventory, the calendar, "
+                   "meals, recipes, and chores:\n\n" + context)
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": prompt}]
     try:
-        provider = _db_setting(db, "llm_provider", env_settings.llm_provider)
-        if provider in ("", "none"):
-            return NO_AI_NOTICE
-        messages = []
-        if context:
-            messages.append({"role": "system", "content":
-                "You are HomeHub, the family's friendly home assistant. Be warm and concise — replies "
-                "may show in a small chat bubble or Telegram message. Use this live household data to "
-                "answer questions about inventory, the calendar, meals, and chores:\n\n" + context})
-        messages.append({"role": "user", "content": prompt})
-
-        if provider == "claude":
-            from anthropic import AsyncAnthropic
-            api_key = _db_setting(db, "anthropic_api_key", env_settings.anthropic_api_key)
-            model = _db_setting(db, "claude_model", env_settings.claude_model) or "claude-haiku-4-5-20251001"
-            client = AsyncAnthropic(api_key=api_key)
-            sys_msg = messages.pop(0)["content"] if messages[0]["role"] == "system" else None
-            r = await client.messages.create(
-                model=model, max_tokens=512,
-                system=sys_msg or "",
-                messages=messages,
-            )
-            return r.content[0].text
-
-        elif provider in ("openai", "lmstudio"):
-            from openai import AsyncOpenAI
-            if provider == "openai":
-                api_key = _db_setting(db, "openai_api_key", env_settings.openai_api_key)
-                model = _db_setting(db, "openai_model", env_settings.openai_model) or "gpt-4o-mini"
-                client = AsyncOpenAI(api_key=api_key)
-            else:
-                host = _db_setting(db, "lmstudio_host", env_settings.lmstudio_host)
-                model = _db_setting(db, "lmstudio_model", env_settings.lmstudio_model) or "local-model"
-                client = AsyncOpenAI(api_key="lm-studio", base_url=f"{host}/v1")
-            r = await client.chat.completions.create(model=model, messages=messages, max_tokens=512)
-            return r.choices[0].message.content
-
-        else:  # ollama
-            host = _db_setting(db, "ollama_host", env_settings.ollama_host)
-            model = _db_setting(db, "ollama_model", env_settings.ollama_model)
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                r = await client.post(
-                    f"{host}/api/chat",
-                    json={"model": model, "messages": messages, "stream": False},
-                )
-                r.raise_for_status()
-                return r.json()["message"]["content"]
-
+        if only:
+            reply = await _chat_with(only, db, messages)
+            if not reply:
+                raise BrainError("empty reply")
+            _set_brain(only, db, fallback=False)
+            return reply
+        return await with_fallback(db, lambda p: _chat_with(p, db, messages))
     except Exception as e:
         return f"I couldn't process that right now. Error: {e}"

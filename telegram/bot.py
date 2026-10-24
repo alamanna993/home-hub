@@ -39,7 +39,7 @@ def fetch_runtime_settings() -> dict:
 
 async def call_backend(path: str, method: str = "GET", json: dict = None) -> dict:
     headers = {"X-API-Key": INTERNAL_API_KEY} if INTERNAL_API_KEY else {}
-    async with httpx.AsyncClient(timeout=60.0, headers=headers) as client:
+    async with httpx.AsyncClient(timeout=180.0, headers=headers) as client:
         if method == "POST":
             r = await client.post(f"{BACKEND_URL}{path}", json=json)
         else:
@@ -76,12 +76,13 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not authorized(update):
         return
     await update.message.reply_text(
-        "🏠 *HomeHub Bot*\n"
+        "💎 *Emerald* — your HomeHub assistant\n"
         "Ask me about your home in plain language:\n\n"
         "• where is my drill?\n"
         "• added 2 boxes of pasta to pantry\n"
         "• we're out of milk\n"
-        "• what can I make for dinner tonight?\n\n"
+        "• what can I make for dinner tonight?\n"
+        "• save this recipe: …\n\n"
         "Commands: /stats /lowstock /find <name> /help\n\n"
         f"(This chat ID: `{update.effective_chat.id}`)",
         parse_mode=ParseMode.MARKDOWN,
