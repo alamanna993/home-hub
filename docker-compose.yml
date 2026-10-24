@@ -1,5 +1,12 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   db:
+    logging: *default-logging
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
@@ -21,6 +28,7 @@ services:
   # Automatic nightly SQL dumps with retention — point BACKUP_PATH at a second
   # disk/NAS share so the data survives loss of the primary volume.
   db-backup:
+    logging: *default-logging
     image: prodrigestivill/postgres-backup-local:16
     restart: unless-stopped
     volumes:
@@ -40,6 +48,7 @@ services:
         condition: service_healthy
 
   backend:
+    logging: *default-logging
     image: ghcr.io/alamanna993/home-hub-backend:latest
     build: ./backend
     restart: unless-stopped
@@ -74,6 +83,7 @@ services:
       - "host.docker.internal:host-gateway"
 
   bot:
+    logging: *default-logging
     image: ghcr.io/alamanna993/home-hub-discord-bot:latest
     build: ./bot
     restart: unless-stopped
@@ -89,6 +99,7 @@ services:
       - "host.docker.internal:host-gateway"
 
   telegram:
+    logging: *default-logging
     image: ghcr.io/alamanna993/home-hub-telegram:latest
     build: ./telegram
     restart: unless-stopped
@@ -103,6 +114,7 @@ services:
       - "host.docker.internal:host-gateway"
 
   frontend:
+    logging: *default-logging
     image: ghcr.io/alamanna993/home-hub-frontend:latest
     build: ./frontend
     restart: unless-stopped

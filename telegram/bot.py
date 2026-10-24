@@ -9,6 +9,9 @@ from telegram.ext import (Application, CallbackQueryHandler, CommandHandler, Mes
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
+# httpx logs the full request URL at INFO, which writes the bot token in plaintext
+# on every 10s poll (75MB of log and a leaked secret). Warnings and errors still show.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger("homehub-telegram")
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")

@@ -562,6 +562,7 @@ async def _agent_ollama(messages: list, host: str, model: str, db, source: str) 
         for _ in range(MAX_TURNS):
             r = await client.post(f"{host}/api/chat", json={
                 "model": model, "messages": messages, "tools": TOOLS, "stream": False,
+                "think": False,
             })
             r.raise_for_status()
             msg = r.json()["message"]

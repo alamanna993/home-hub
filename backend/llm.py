@@ -160,6 +160,7 @@ async def _parse_ollama(user_message: str, host: str, model: str, system_prompt:
                     {"role": "user", "content": user_message},
                 ],
                 "stream": False,
+                "think": False,   # qwen3 reasoning blocks burn ~4x the tokens for no gain here
                 "format": "json",
                 "options": {"num_predict": 4096},
             },
@@ -449,7 +450,7 @@ async def _chat_with(provider: str, db, messages: list[dict]) -> str:
         return r.choices[0].message.content
     host = _db_setting(db, "ollama_host", env_settings.ollama_host)
     async with httpx.AsyncClient(timeout=60.0) as client:
-        r = await client.post(f"{host}/api/chat", json={"model": model, "messages": messages, "stream": False})
+        r = await client.post(f"{host}/api/chat", json={"model": model, "messages": messages, "stream": False, "think": False})
         r.raise_for_status()
         return r.json()["message"]["content"]
 

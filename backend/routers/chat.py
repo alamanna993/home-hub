@@ -260,7 +260,7 @@ async def conversational_reply(req: "ChatRequest", db: Session, parsed: dict) ->
             return {"reply": reply, "action": "agent", "parsed": parsed}
     except Exception as e:
         import logging
-        logging.getLogger("homehub-chat").warning(f"agent failed, falling back to chat: {e}")
+        logging.getLogger("homehub-chat").exception(f"agent failed, falling back to chat: {e!r}")
     reply = await generate_response(req.message, context=context, db=db)
     return {"reply": reply, "action": "chat", "parsed": parsed}
 
