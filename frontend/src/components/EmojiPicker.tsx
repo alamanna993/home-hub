@@ -59,26 +59,27 @@ export default function EmojiPicker({ value, onChange, buttonClassName }: Props)
   return (
     <div className="relative" ref={ref}>
       <button type="button" onClick={() => setOpen(o => !o)}
-        title="Pick an icon"
-        className={buttonClassName || 'w-12 h-9 bg-surface border border-surface-border rounded-lg text-xl hover:border-accent transition-all flex items-center justify-center'}>
+        title="Pick an icon" aria-label="Pick an icon" aria-expanded={open}
+        className={buttonClassName || 'flex h-10 w-12 items-center justify-center rounded-control border border-line bg-surface text-xl transition-colors hover:border-muted/50 lg:h-9'}>
         {value || '📦'}
       </button>
       {open && (
-        <div className={`absolute z-50 mt-1 ${alignRight ? 'right-0' : 'left-0'} w-72 max-w-[calc(100vw-1rem)] max-h-72 overflow-y-auto bg-surface-card border border-surface-border rounded-xl shadow-card p-3 space-y-2`}>
+        <div className={`absolute z-50 mt-1 ${alignRight ? 'right-0' : 'left-0'} w-72 max-w-[calc(100vw-1rem)] max-h-72 overflow-y-auto rounded-panel border border-line bg-surface p-3 shadow-overlay space-y-2`}>
           <input
-            className="w-full bg-surface border border-surface-border rounded-lg px-2 py-1.5 text-white text-sm text-center focus:outline-none focus:border-accent"
-            placeholder="…or type/paste any emoji"
+            aria-label="Type or paste any emoji"
+            className="w-full rounded-control border border-line bg-canvas px-2 py-1.5 text-center text-sm text-ink focus:border-action focus:outline-none"
+            placeholder="Or type or paste any emoji"
             value={value}
             onChange={e => onChange(e.target.value)}
           />
           {EMOJI_GROUPS.map(group => (
             <div key={group.label}>
-              <p className="text-surface-muted text-[10px] font-medium uppercase tracking-wide mb-1">{group.label}</p>
+              <p className="mb-1 text-xs font-medium text-muted">{group.label}</p>
               <div className="grid grid-cols-8 gap-0.5">
                 {group.emojis.map(e => (
                   <button key={e} type="button"
                     onClick={() => { onChange(e); setOpen(false) }}
-                    className={`w-8 h-8 rounded-lg text-lg flex items-center justify-center hover:bg-white/10 transition-all ${value === e ? 'bg-accent/20 ring-1 ring-accent' : ''}`}>
+                    className={`w-8 h-8 rounded-lg text-lg flex items-center justify-center hover:bg-ink/[0.06] ${value === e ? 'bg-action/10 ring-1 ring-action' : ''}`}>
                     {e}
                   </button>
                 ))}

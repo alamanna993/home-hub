@@ -1,108 +1,87 @@
 import { useEffect, useState } from 'react'
-import { motion } from 'framer-motion'
-import { AlertTriangle, CheckCircle, Clock } from 'lucide-react'
+import { CheckCircle2 } from 'lucide-react'
 import { getItems, Item } from '../lib/api'
+import { Badge, Button, DataTable, EmptyState, Page, PageHeader, Panel, Skeleton, type Column } from '../components/ui'
+import { EmeraldMark } from '../components/EmeraldMark'
+import { useEmeraldChat } from '../hooks/useEmeraldChat'
+
+// Date-only strings must not go through new Date(iso) — UTC parsing can shift them a day
+const fmtDay = (iso: string) => {
+  const [y, m, d] = iso.slice(0, 10).split('-').map(Number)
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+const where = (i: Item) => i.location ? i.location.name + (i.location.sublocation ? ` / ${i.location.sublocation}` : '') : 'No location'
+
+const itemCell = (i: Item) => (
+  <span className="flex items-center gap-2.5">
+    <span className="w-5 text-center leading-none" aria-hidden>{i.category?.icon || '📦'}</span>
+    <span className="font-medium text-ink">{i.name}</span>
+  </span>
+)
 
 export default function Alerts() {
-  const [items, setItems] = useState<Item[]>([])
-  const [expiring, setExpiring] = useState<Item[]>([])
-  const [loading, setLoading] = useState(true)
+  const { openPanel } = useEmeraldChat()
+  const [low, setLow] = useState<Item[] | null>(null)
+  const [expiring, setExpiring] = useState<Item[] | null>(null)
 
   useEffect(() => {
-    Promise.all([
-      getItems({ low_stock_only: true }),
-      getItems({ expiring_only: true }),
-    ]).then(([low, exp]) => { setItems(low); setExpiring(exp); setLoading(false) })
+    getItems({ low_stock_only: true }).then(setLow).catch(() => setLow([]))
+    getItems({ expiring_only: true }).then(setExpiring).catch(() => setExpiring([]))
   }, [])
 
-  const fmtDay = (iso: string) => {
-    const [y, m, d] = iso.slice(0, 10).split('-').map(Number)
-    return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-  }
+  const expiringCols: Column<Item>[] = [
+    { key: 'item', header: 'Food', sortValue: i => i.name.toLowerCase(), cell: itemCell },
+    { key: 'where', header: 'Location', sortValue: where, cell: i => <span className="text-muted">{where(i)}</span> },
+    {
+      key: 'date', header: 'Use by', width: '10rem', sortValue: i => i.expiration_date ?? null,
+      cell: i => <Badge tone={i.is_expired ? 'danger' : 'warn'}>{i.is_expired ? 'Expired' : 'Use by'} {fmtDay(i.expiration_date!)}</Badge>,
+    },
+  ]
+  const lowCols: Column<Item>[] = [
+    { key: 'item', header: 'Item', sortValue: i => i.name.toLowerCase(), cell: itemCell },
+    { key: 'where', header: 'Location', hideBelow: 'lg', sortValue: where, cell: i => <span className="text-muted">{where(i)}</span> },
+    {
+      key: 'qty', header: 'Left', width: '7rem', numeric: true, sortValue: i => i.quantity ?? 0,
+      cell: i => <span className="font-medium text-warn">{i.quantity ?? 0}{i.unit ? ` ${i.unit}` : ''}</span>,
+    },
+    {
+      key: 'at', header: 'Warns at', width: '7rem', numeric: true,
+      cell: i => <span className="text-muted">{i.low_stock_threshold ?? 'Last one'}</span>,
+    },
+  ]
+
+  const loading = low === null || expiring === null
+  const clear = !loading && low!.length === 0 && expiring!.length === 0
 
   return (
-    <div className="p-6 space-y-8">
-      <div>
-        <h2 className="text-white text-2xl font-bold">Alerts</h2>
-        <p className="text-surface-muted text-sm mt-1">Food expiring soon and items that need restocking</p>
-      </div>
+    <Page>
+      <PageHeader title="Alerts" description="Food that's expiring and things that need restocking."
+        actions={!clear && !loading && (
+          <Button onClick={() => openPanel('Make me a shopping list of everything running low')}>
+            <EmeraldMark size={16} className="text-emerald" />Shopping list from Emerald
+          </Button>
+        )} />
 
       {loading ? (
-        <div className="flex justify-center py-16">
-          <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-        </div>
-      ) : items.length === 0 && expiring.length === 0 ? (
-        <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }}
-          className="flex flex-col items-center justify-center py-24 text-center">
-          <CheckCircle size={48} className="text-green-400 mb-4" />
-          <p className="text-white font-semibold text-lg">All clear!</p>
-          <p className="text-surface-muted text-sm mt-1">Nothing is running low or expiring soon.</p>
-        </motion.div>
+        <Skeleton className="h-48 rounded-panel" />
+      ) : clear ? (
+        <Panel padded={false}>
+          <EmptyState icon={CheckCircle2} title="Nothing needs attention" description="Nothing is running low or about to expire." />
+        </Panel>
       ) : (
-        <>
-          {expiring.length > 0 && (
-            <div className="space-y-3">
-              <h3 className="text-white font-semibold">⏳ Expiring Food</h3>
-              {expiring.map((item, i) => (
-                <motion.div key={item.id}
-                  initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: i * 0.05 }}
-                  className={`bg-surface-card border rounded-2xl p-4 flex items-center gap-4 shadow-card ${
-                    item.is_expired ? 'border-red-500/30' : 'border-orange-500/30'
-                  }`}>
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                    item.is_expired ? 'bg-red-500/10' : 'bg-orange-500/10'
-                  }`}>
-                    <Clock size={18} className={item.is_expired ? 'text-red-400' : 'text-orange-400'} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-white font-medium">{item.name}</p>
-                    <p className="text-surface-muted text-xs mt-0.5">
-                      {item.location ? `${item.location.name}${item.location.sublocation ? ` — ${item.location.sublocation}` : ''}` : 'No location'}
-                      {item.category && ` · ${item.category.icon} ${item.category.name}`}
-                    </p>
-                  </div>
-                  <div className="text-right flex-shrink-0">
-                    <p className={`font-bold ${item.is_expired ? 'text-red-400' : 'text-orange-400'}`}>
-                      {item.is_expired ? 'Expired' : 'Expires'}
-                    </p>
-                    <p className="text-surface-muted text-xs">{item.expiration_date && fmtDay(item.expiration_date)}</p>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
+        <div className="space-y-6">
+          {expiring!.length > 0 && (
+            <Panel title="Expiring food" description={`${expiring!.length} item${expiring!.length === 1 ? '' : 's'}`} padded={false}>
+              <DataTable columns={expiringCols} rows={expiring!} rowKey={i => i.id} initialSort={{ key: 'date', dir: 'asc' }} caption="Expiring food" />
+            </Panel>
           )}
-
-          {items.length > 0 && (
-            <div className="space-y-3">
-              <h3 className="text-white font-semibold">📦 Low Stock</h3>
-              {items.map((item, i) => (
-                <motion.div key={item.id}
-                  initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: i * 0.05 }}
-                  className="bg-surface-card border border-orange-500/30 rounded-2xl p-4 flex items-center gap-4 shadow-card">
-                  <div className="w-10 h-10 rounded-xl bg-orange-500/10 flex items-center justify-center flex-shrink-0">
-                    <AlertTriangle size={18} className="text-orange-400" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-white font-medium">{item.name}</p>
-                    <p className="text-surface-muted text-xs mt-0.5">
-                      {item.location ? `${item.location.name}${item.location.sublocation ? ` — ${item.location.sublocation}` : ''}` : 'No location'}
-                      {item.category && ` · ${item.category.icon} ${item.category.name}`}
-                    </p>
-                  </div>
-                  <div className="text-right flex-shrink-0">
-                    <p className="text-orange-400 font-bold text-lg">
-                      {item.quantity ?? 0} <span className="text-sm font-normal">{item.unit || ''}</span>
-                    </p>
-                    <p className="text-surface-muted text-xs">alert ≤ {item.low_stock_threshold}</p>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
+          {low!.length > 0 && (
+            <Panel title="Running low" description={`${low!.length} item${low!.length === 1 ? '' : 's'}`} padded={false}>
+              <DataTable columns={lowCols} rows={low!} rowKey={i => i.id} initialSort={{ key: 'qty', dir: 'asc' }} caption="Running low" />
+            </Panel>
           )}
-        </>
+        </div>
       )}
-    </div>
+    </Page>
   )
 }

@@ -1,129 +1,112 @@
 import { useEffect, useState } from 'react'
-import { motion } from 'framer-motion'
-import { Plus, Trash2, Pencil, Check, X } from 'lucide-react'
-import { getCategories, createCategory, updateCategory, Category } from '../lib/api'
-import EmojiPicker from '../components/EmojiPicker'
+import { Pencil, Plus, Tag, Trash2 } from 'lucide-react'
 import axios from 'axios'
 import toast from 'react-hot-toast'
+import { getCategories, createCategory, updateCategory, errorText, Category } from '../lib/api'
+import EmojiPicker from '../components/EmojiPicker'
+import {
+  Button, ConfirmDialog, DataTable, Dialog, EmptyState, Field, Input, Page, PageHeader, Panel, type Column,
+} from '../components/ui'
+import { cn } from '../lib/utils'
 
-const COLORS = ['#6366f1','#22c55e','#3b82f6','#f59e0b','#ec4899','#8b5cf6','#06b6d4','#84cc16','#ef4444']
+// Category colors are data the family picks (shown as a swatch), not UI chrome
+const COLORS = ['#2B4C7E', '#2F855A', '#2B6CB0', '#B7791F', '#B83280', '#6B46C1', '#0987A0', '#5A7D1A', '#C53030', '#5A6575']
+
+type Draft = { id?: number; name: string; icon: string; color: string }
 
 export default function Categories() {
-  const [cats, setCats] = useState<Category[]>([])
-  const [name, setName] = useState(''); const [icon, setIcon] = useState('📦'); const [color, setColor] = useState(COLORS[0])
-  const [editingId, setEditingId] = useState<number | null>(null)
-  const [edit, setEdit] = useState({ name: '', icon: '', color: '' })
+  const [cats, setCats] = useState<Category[] | null>(null)
+  const [draft, setDraft] = useState<Draft | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [removing, setRemoving] = useState<Category | null>(null)
 
-  const load = () => getCategories().then(setCats)
+  const load = () => getCategories().then(setCats).catch(() => setCats([]))
   useEffect(() => { load() }, [])
 
-  async function add() {
-    if (!name.trim()) return
-    await createCategory({ name: name.trim(), icon, color })
-    setName(''); toast.success('Category added'); load()
+  async function save() {
+    if (!draft?.name.trim()) { toast.error('Give the category a name'); return }
+    setSaving(true)
+    try {
+      const data = { name: draft.name.trim(), icon: draft.icon, color: draft.color }
+      if (draft.id) await updateCategory(draft.id, data)
+      else await createCategory(data)
+      toast.success(draft.id ? 'Category updated' : 'Category added')
+      setDraft(null); load()
+    } catch (e) { toast.error(errorText(e, "Couldn't save the category")) } finally { setSaving(false) }
   }
 
-  async function remove(id: number) {
-    await axios.delete(`/api/categories/${id}`)
-    toast.success('Category removed'); load()
-  }
+  const edit = (c: Category) => setDraft({ id: c.id, name: c.name, icon: c.icon || '📦', color: c.color || COLORS[0] })
 
-  function startEdit(cat: Category) {
-    setEditingId(cat.id)
-    setEdit({ name: cat.name, icon: cat.icon || '📦', color: cat.color || COLORS[0] })
-  }
-
-  async function saveEdit(id: number) {
-    if (!edit.name.trim()) return toast.error('Name is required')
-    await updateCategory(id, { name: edit.name.trim(), icon: edit.icon, color: edit.color })
-    toast.success('Category updated')
-    setEditingId(null)
-    load()
-  }
+  const columns: Column<Category>[] = [
+    {
+      key: 'name', header: 'Category', sortValue: c => c.name.toLowerCase(),
+      cell: c => (
+        <span className="flex items-center gap-2.5">
+          <span className="w-5 text-center leading-none" aria-hidden>{c.icon || '📦'}</span>
+          <span className="font-medium text-ink">{c.name}</span>
+        </span>
+      ),
+    },
+    {
+      key: 'color', header: 'Color', width: '8rem',
+      cell: c => <span className="inline-block h-3 w-8 rounded-full" style={{ background: c.color || COLORS[COLORS.length - 1] }} aria-label="Category color" />,
+    },
+  ]
 
   return (
-    <div className="p-6 space-y-5">
-      <div>
-        <h2 className="text-white text-2xl font-bold">Categories</h2>
-        <p className="text-surface-muted text-sm mt-1">Organize your inventory by type</p>
-      </div>
+    <Page>
+      <PageHeader title="Categories" description="Kinds of things you keep, like Groceries, Tools, or Books."
+        actions={<Button variant="primary" icon={Plus} onClick={() => setDraft({ name: '', icon: '📦', color: COLORS[0] })}>Add category</Button>} />
 
-      <div className="bg-surface-card border border-surface-border rounded-2xl p-4 flex gap-3 flex-wrap items-end">
-        <div>
-          <label className="text-xs text-surface-muted mb-1 block">Icon</label>
-          <EmojiPicker value={icon} onChange={setIcon} />
-        </div>
-        <div className="flex-1 min-w-32">
-          <label className="text-xs text-surface-muted mb-1 block">Name</label>
-          <input className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
-            placeholder="e.g. Groceries" value={name} onChange={e => setName(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && add()} />
-        </div>
-        <div>
-          <label className="text-xs text-surface-muted mb-1 block">Color</label>
-          <div className="flex gap-1.5">
-            {COLORS.map(c => (
-              <button key={c} onClick={() => setColor(c)}
-                className={`w-6 h-6 rounded-full border-2 transition-all ${color === c ? 'border-white scale-110' : 'border-transparent'}`}
-                style={{ background: c }} />
-            ))}
-          </div>
-        </div>
-        <button onClick={add} disabled={!name.trim()}
-          className="flex items-center gap-2 bg-accent hover:bg-accent-hover text-white text-sm font-medium px-4 py-2 rounded-lg transition-all disabled:opacity-50">
-          <Plus size={15} /> Add
-        </button>
-      </div>
+      <Panel padded={false} className="max-w-3xl">
+        <DataTable columns={columns} rows={cats || []} rowKey={c => c.id} loading={cats === null}
+          initialSort={{ key: 'name', dir: 'asc' }} caption="Categories" onRowClick={edit}
+          rowActions={c => [
+            { label: 'Edit', icon: Pencil, onSelect: () => edit(c) },
+            { separator: true },
+            { label: 'Delete', icon: Trash2, danger: true, onSelect: () => setRemoving(c) },
+          ]}
+          empty={<EmptyState icon={Tag} title="No categories yet" description="Categories group the inventory and set sensible defaults, like stock tracking for groceries." />} />
+      </Panel>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-        {cats.map((cat, i) => (
-          <motion.div key={cat.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.04 }}
-            className="bg-surface-card border border-surface-border rounded-2xl p-4 shadow-card group">
-            {editingId === cat.id ? (
-              <div className="space-y-2.5">
-                <div className="flex items-center gap-2">
-                  <EmojiPicker value={edit.icon} onChange={v => setEdit(f => ({ ...f, icon: v }))}
-                    buttonClassName="w-10 h-10 bg-surface border border-accent/50 rounded-xl text-xl hover:border-accent transition-all flex items-center justify-center flex-shrink-0" />
-                  <input autoFocus className="flex-1 min-w-0 bg-surface border border-accent/50 rounded-lg px-2.5 py-2 text-white text-sm focus:outline-none focus:border-accent"
-                    value={edit.name} onChange={e => setEdit(f => ({ ...f, name: e.target.value }))}
-                    onKeyDown={e => { if (e.key === 'Enter') saveEdit(cat.id); if (e.key === 'Escape') setEditingId(null) }} />
-                </div>
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  {COLORS.map(c => (
-                    <button key={c} onClick={() => setEdit(f => ({ ...f, color: c }))}
-                      className={`w-5 h-5 rounded-full border-2 transition-all ${edit.color === c ? 'border-white scale-110' : 'border-transparent'}`}
-                      style={{ background: c }} />
-                  ))}
-                  <div className="ml-auto flex gap-1.5">
-                    <button onClick={() => saveEdit(cat.id)} className="text-green-400 hover:text-green-300"><Check size={17} /></button>
-                    <button onClick={() => setEditingId(null)} className="text-surface-muted hover:text-white"><X size={17} /></button>
-                  </div>
-                </div>
+      <Dialog open={!!draft} onClose={() => setDraft(null)} size="sm" title={draft?.id ? 'Edit category' : 'Add category'}
+        footer={<>
+          <Button variant="ghost" onClick={() => setDraft(null)}>Cancel</Button>
+          <Button variant="primary" loading={saving} onClick={save}>{draft?.id ? 'Save changes' : 'Add category'}</Button>
+        </>}>
+        {draft && (
+          <form className="space-y-4" onSubmit={e => { e.preventDefault(); save() }}>
+            <div className="flex items-end gap-3">
+              <div className="flex flex-col gap-1.5">
+                <span className="text-ui font-medium text-ink">Icon</span>
+                <EmojiPicker value={draft.icon} onChange={v => setDraft(d => d && { ...d, icon: v })} />
               </div>
-            ) : (
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl flex-shrink-0"
-                  style={{ background: `${cat.color || '#6366f1'}22` }}>
-                  {cat.icon || '📦'}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-white font-medium text-sm truncate">{cat.name}</p>
-                </div>
-                <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: cat.color || '#6366f1' }} />
-                <div className="flex gap-1 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-all ml-1">
-                  <button onClick={() => startEdit(cat)} className="p-2 -m-1 text-surface-muted hover:text-accent">
-                    <Pencil size={14} />
-                  </button>
-                  <button onClick={() => remove(cat.id)} className="p-2 -m-1 text-surface-muted hover:text-red-400">
-                    <Trash2 size={14} />
-                  </button>
-                </div>
+              <Field label="Name" required className="flex-1">
+                <Input autoFocus value={draft.name} onChange={e => setDraft(d => d && { ...d, name: e.target.value })} placeholder="Camping gear" />
+              </Field>
+            </div>
+            <fieldset>
+              <legend className="mb-1.5 text-ui font-medium text-ink">Color</legend>
+              <div className="flex flex-wrap gap-2">
+                {COLORS.map(c => (
+                  <button key={c} type="button" onClick={() => setDraft(d => d && { ...d, color: c })}
+                    aria-label={`Color ${c}`} aria-pressed={draft.color === c}
+                    className={cn('h-7 w-7 rounded-full ring-offset-2 ring-offset-surface', draft.color === c && 'ring-2 ring-ink')}
+                    style={{ background: c }} />
+                ))}
               </div>
-            )}
-          </motion.div>
-        ))}
-      </div>
-    </div>
+            </fieldset>
+            <button type="submit" hidden />
+          </form>
+        )}
+      </Dialog>
+
+      <ConfirmDialog open={!!removing} onClose={() => setRemoving(null)} confirmLabel="Delete category"
+        title={`Delete ${removing?.name}?`} description="Items in this category keep their other details and become uncategorized."
+        onConfirm={async () => {
+          try { await axios.delete(`/api/categories/${removing!.id}`); toast.success('Category deleted'); load() }
+          catch (e) { toast.error(errorText(e, "Couldn't delete the category")) }
+        }} />
+    </Page>
   )
 }
