@@ -44,6 +44,12 @@ class Item(Base):
     image_url = Column(String(500), nullable=True)
     notes = Column(Text, nullable=True)
     expiration_date = Column(Date, nullable=True)       # for food — created_at is the entry date
+    # The opened package: "1 package of bagels, 1 bagel left" / "1 tub, a quarter left".
+    # With pack_unit set, open_amount counts those units; without it, open_amount is a
+    # fraction (0–1) of the package. NULL open_amount = nothing open (all packages full).
+    pack_size = Column(Float, nullable=True)            # units in a full package, e.g. 6
+    pack_unit = Column(String(50), nullable=True)       # e.g. "bagel"
+    open_amount = Column(Float, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

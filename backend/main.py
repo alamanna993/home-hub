@@ -130,6 +130,9 @@ def run_migrations():
         conn.execute(text("ALTER TABLE items ADD COLUMN IF NOT EXISTS expiration_date DATE"))
         conn.execute(text("ALTER TABLE chores ADD COLUMN IF NOT EXISTS override_assigned_to VARCHAR(100)"))
         conn.execute(text("ALTER TABLE chores ADD COLUMN IF NOT EXISTS override_until DATE"))
+        conn.execute(text("ALTER TABLE items ADD COLUMN IF NOT EXISTS pack_size FLOAT"))
+        conn.execute(text("ALTER TABLE items ADD COLUMN IF NOT EXISTS pack_unit VARCHAR(50)"))
+        conn.execute(text("ALTER TABLE items ADD COLUMN IF NOT EXISTS open_amount FLOAT"))
         conn.execute(text("ALTER TABLE meal_plans ADD COLUMN IF NOT EXISTS recipe_id INTEGER REFERENCES recipes(id) ON DELETE SET NULL"))
 
 

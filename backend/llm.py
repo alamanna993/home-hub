@@ -13,7 +13,8 @@ A single message may contain SEVERAL items or requests (e.g. a shopping list). R
 Available actions:
 - find_item: user wants to know where something is or if they have it
 - add_item: user is adding a new item
-- update_item: user is updating an existing item (quantity, location, notes)
+- update_item: user is updating an existing item (quantity, location, notes, or how much is left in the opened package)
+- use_item: user used/ate SOME of an item, counted in pieces ("ate a bagel", "used 2 eggs") — set "quantity" to how many pieces (default 1)
 - remove_item: user is removing/used up a physical inventory item (NOT chores, events, meals, locations, or people)
 - list_items: user wants to see items in a category or location
 - low_stock: user wants to see what's running low
@@ -39,6 +40,9 @@ Respond ONLY with valid JSON in this format (always a top-level "actions" array,
       "description": null,
       "notes": null,
       "low_stock_threshold": null,
+      "open_amount": null,
+      "pack_unit": null,
+      "pack_size": null,
       "track_stock": null,
       "expires": null,
       "datetime": null,
@@ -49,6 +53,10 @@ Respond ONLY with valid JSON in this format (always a top-level "actions" array,
     }}
   ]
 }}
+
+Opened packages — "quantity" always counts whole packages (bags, tubs, boxes), including the opened one:
+- What's left in the opened package goes in "open_amount". If it's counted in pieces ("1 bagel left", "3 slices left"), also set "pack_unit" to the piece name, singular ("bagel"). If it's a portion ("a quarter left", "half a tub", "almost empty"), leave "pack_unit" null and set "open_amount" to the fraction 0-1 (quarter = 0.25, half = 0.5, almost empty = 0.05).
+- "pack_size" is how many pieces a full package holds, when the user says ("6-pack of bagels" -> pack_size 6, pack_unit "bagel").
 
 For food items with a mentioned expiration/use-by date, set "expires" to the ISO date (YYYY-MM-DD) resolved from today's date.
 
@@ -73,6 +81,10 @@ Examples (each -> the "actions" array):
 - "picked up AA batteries" -> [{{"action": "add_item", "item": "AA batteries", "suggested_location": "Garage", "category": "Electronics", ...}}]
 - "added the hobbit to the bookshelf" -> [{{"action": "add_item", "item": "The Hobbit", "author": "J.R.R. Tolkien", "category": "Books / Media", "location": "bookshelf", ...}}]
 - "got abbey road on vinyl for the living room" -> [{{"action": "add_item", "item": "Abbey Road (vinyl)", "author": "The Beatles", "category": "Books / Media", "location": "living room", ...}}]
+- "I have 1 package of asiago bagels but only 1 bagel left" -> [{{"action": "update_item", "item": "asiago bagels", "quantity": 1, "unit": "package", "open_amount": 1, "pack_unit": "bagel", ...}}]
+- "only about a quarter of the cottage cheese left" -> [{{"action": "update_item", "item": "cottage cheese", "open_amount": 0.25, "pack_unit": null, ...}}]
+- "bought a 6-pack of everything bagels" -> [{{"action": "add_item", "item": "everything bagels", "quantity": 1, "unit": "package", "pack_size": 6, "pack_unit": "bagel", ...}}]
+- "I ate a bagel" -> [{{"action": "use_item", "item": "bagels", "quantity": 1, ...}}]
 - "bought a 12 pack of paper towels, warn me when we're down to 3" -> [{{"action": "add_item", "item": "paper towels", "quantity": 12, "category": "Cleaning", "low_stock_threshold": 3, "track_stock": true, ...}}]
 - "added chicken to the fridge, use by friday, and we're out of ketchup" -> [{{"action": "add_item", "item": "chicken", "location": "fridge", "expires": "{friday}", ...}}, {{"action": "update_item", "item": "ketchup", "quantity": 0, ...}}]
 - "moved the drill to the garage" -> [{{"action": "update_item", "item": "drill", "location": "garage", ...}}]
@@ -368,6 +380,7 @@ ACTION_FIELDS = {
     "category": _field("string"), "quantity": _field("number"), "unit": _field("string"),
     "author": _field("string"), "description": _field("string"), "notes": _field("string"),
     "low_stock_threshold": _field("number"), "track_stock": _field("boolean"),
+    "open_amount": _field("number"), "pack_unit": _field("string"), "pack_size": _field("number"),
     "expires": _field("string"), "datetime": _field("string"), "person": _field("string"),
     "frequency": _field("string"), "icon": _field("string"), "confidence": _field("number"),
 }

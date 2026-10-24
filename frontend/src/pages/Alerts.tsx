@@ -41,8 +41,13 @@ export default function Alerts() {
     { key: 'item', header: 'Item', sortValue: i => i.name.toLowerCase(), cell: itemCell },
     { key: 'where', header: 'Location', hideBelow: 'lg', sortValue: where, cell: i => <span className="text-muted">{where(i)}</span> },
     {
-      key: 'qty', header: 'Left', width: '7rem', numeric: true, sortValue: i => i.quantity ?? 0,
-      cell: i => <span className="font-medium text-warn">{i.quantity ?? 0}{i.unit ? ` ${i.unit}` : ''}</span>,
+      key: 'qty', header: 'Left', width: '11rem', numeric: true, sortValue: i => i.effective_quantity ?? i.quantity ?? 0,
+      cell: i => (
+        <span className="block text-right">
+          <span className="font-medium text-warn">{i.quantity ?? 0}{i.unit ? ` ${i.unit}` : ''}</span>
+          {i.open_label && <span className="block text-xs text-muted">{i.open_label}</span>}
+        </span>
+      ),
     },
     {
       key: 'at', header: 'Warns at', width: '7rem', numeric: true,

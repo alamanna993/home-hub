@@ -101,6 +101,9 @@ def item_line(item: Item) -> str:
         loc = item.location.name
         if item.location.sublocation:
             loc += f" / {item.location.sublocation}"
+    from routers.items import open_label
+    if open_label(item):
+        qty += f", {open_label(item)} in the open one"
     line = f"- {item.name} ({qty})" + (f" — in {loc}" if loc else "")
     if item.expiration_date:
         line += f" — expires {item.expiration_date.isoformat()}"
@@ -433,7 +436,10 @@ async def handle_action(parsed: dict, req: ChatRequest, db: Session) -> dict:
                 loc_str = item.location.name
                 if item.location.sublocation:
                     loc_str += f" — {item.location.sublocation}"
-            qty_str = f"{item.quantity} {item.unit or ''}".strip() if item.quantity is not None else "some"
+            from routers.items import open_label
+            qty_str = f"{item.quantity:g} {item.unit or ''}".strip() if item.quantity is not None else "some"
+            if open_label(item):
+                qty_str += f" ({open_label(item)} in the open one)"
             reply = f"✅ **{item.name}** — {loc_str or 'location unknown'} | Qty: {qty_str}"
         else:
             reply = f"❌ Couldn't find **{item_name}** in the inventory."
@@ -480,12 +486,20 @@ async def handle_action(parsed: dict, req: ChatRequest, db: Session) -> dict:
             expiration_date=expires,
         )
         result = create_item(data, source=req.source, db=db)
+        if any(parsed.get(k) is not None for k in ("open_amount", "pack_size", "pack_unit")):
+            from routers.items import set_open_package, item_to_dict
+            created = db.query(Item).filter(Item.id == result["id"]).first()
+            set_open_package(created, parsed.get("open_amount"), parsed.get("pack_unit"), parsed.get("pack_size"))
+            db.commit()
+            result = item_to_dict(created)
         reply = f"✅ Added **{result['name']}**"
         if result.get("author"):
             reply += f" by {result['author']}"
         reply += f" (qty: {result['quantity'] or 1}) to {result['location']['name'] if result.get('location') else 'inventory'}."
         if result.get("category"):
             reply += f" {result['category'].get('icon') or '🏷️'} {result['category']['name']}."
+        if result.get("open_label"):
+            reply += f" Open one: {result['open_label']}."
         if expires:
             reply += f" Expires {expires.strftime('%b %d')}."
         if threshold is not None:
@@ -535,6 +549,11 @@ async def handle_action(parsed: dict, req: ChatRequest, db: Session) -> dict:
                     changes.append(f"expires {item.expiration_date.isoformat()}")
                 except ValueError:
                     pass
+            if parsed.get("unit") and not item.unit:
+                item.unit = parsed["unit"]
+            if any(parsed.get(k) is not None for k in ("open_amount", "pack_size")):
+                from routers.items import set_open_package
+                changes += set_open_package(item, parsed.get("open_amount"), parsed.get("pack_unit"), parsed.get("pack_size"))
             db.add(AuditLog(action="updated", item_name=item.name, changed_by=req.source, details="; ".join(changes) or "no changes"))
             db.commit()
             if changes:
@@ -546,6 +565,32 @@ async def handle_action(parsed: dict, req: ChatRequest, db: Session) -> dict:
             # chore, event, etc.; the caller can hand it to the tool agent.
             return {"reply": f"❌ Couldn't find **{item_name}** to update.",
                     "action": action, "parsed": parsed, "_miss": True}
+        return {"reply": reply, "action": action, "parsed": parsed}
+
+    elif action == "use_item" and item_name:
+        # "ate a bagel": take pieces out of the open package (or whole packages for
+        # things that aren't counted by the piece)
+        from models import AuditLog
+        from routers.items import use_one
+        item = find_best_item_match(item_name, db)
+        if not item:
+            return {"reply": f"❌ Couldn't find **{item_name}**.", "action": action, "parsed": parsed, "_miss": True}
+        count = max(1, int(parsed.get("quantity") or 1))
+        try:
+            if item.pack_unit:
+                for _ in range(count):
+                    detail = use_one(item)
+            else:
+                item.quantity = max(0.0, (item.quantity or 0) - count)
+                if item.quantity <= 0:
+                    item.open_amount = None
+                detail = f"used {count}; {item.quantity:g} left"
+        except ValueError as e:
+            return {"reply": f"🤔 {e}", "action": action, "parsed": parsed}
+        db.add(AuditLog(action="updated", item_name=item.name, changed_by=req.source, details=detail))
+        db.commit()
+        from routers.items import stock_phrase
+        reply = f"✅ **{item.name}**: {stock_phrase(item)}."
         return {"reply": reply, "action": action, "parsed": parsed}
 
     elif action == "remove_item" and item_name:
@@ -566,7 +611,9 @@ async def handle_action(parsed: dict, req: ChatRequest, db: Session) -> dict:
         from routers.items import is_low
         low_items = [i for i in db.query(Item).all() if is_low(i)]
         if low_items:
-            lines = [f"• {i.name}: {i.quantity} {i.unit or ''} left".strip() for i in low_items]
+            from routers.items import open_label
+            lines = [f"• {i.name}: {i.quantity:g} {i.unit or ''}".strip()
+                     + (f" ({open_label(i)} in the open one)" if open_label(i) else " left") for i in low_items]
             reply = "⚠️ **Running low:**\n" + "\n".join(lines)
         else:
             reply = "✅ Nothing is critically low right now."

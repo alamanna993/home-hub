@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { AlertTriangle, Edit2, Inbox, MapPin, Plus, Search, Trash2 } from 'lucide-react'
-import { getItems, getCategories, getLocations, deleteItem, errorText, Item, Category, Location } from '../lib/api'
+import { AlertTriangle, Edit2, Inbox, MapPin, Minus, PackageCheck, Plus, Search, Trash2 } from 'lucide-react'
+import { getItems, getCategories, getLocations, deleteItem, useItem as consumeItem, errorText, Item, Category, Location } from '../lib/api'
 import ItemModal from '../components/ItemModal'
 import {
   Badge, Button, ConfirmDialog, DataTable, EmptyState, Input, Page, PageHeader, Panel, Select, Skeleton, type Column,
@@ -58,6 +58,27 @@ function ItemStatus({ item }: { item: Item }) {
   if (item.is_low_stock) return <Badge tone="warn">Running low</Badge>
   if (item.expiration_date) return <span className="text-ui text-muted">Use by {fmtDay(item.expiration_date)}</span>
   return null
+}
+
+/** "1 package" with what's left in the opened one underneath ("1 bagel left", "¼ left") */
+function Quantity({ item: i, align = 'right' }: { item: Item; align?: 'right' | 'left' }) {
+  return (
+    <div className={align === 'right' ? 'text-right' : undefined}>
+      <span className={cn('text-sm tnum', i.is_low_stock ? 'font-medium text-warn' : 'text-ink')}>
+        {i.quantity ?? '—'}{i.unit ? ` ${i.unit}` : ''}
+      </span>
+      {i.open_label && (
+        <span className={cn('mt-0.5 flex items-center gap-1.5 text-xs text-muted', align === 'right' && 'justify-end')}>
+          {i.open_fraction != null && (
+            <span className="h-1 w-8 overflow-hidden rounded-full bg-line" aria-hidden>
+              <span className="block h-full bg-action" style={{ width: `${Math.max(6, i.open_fraction * 100)}%` }} />
+            </span>
+          )}
+          {i.open_label}{(i.quantity ?? 0) > 1 ? ' in the open one' : ''}
+        </span>
+      )}
+    </div>
+  )
 }
 
 export default function Inventory() {
@@ -141,6 +162,16 @@ export default function Inventory() {
     return [...items].sort((a, b) => cmp(a, b) || a.name.localeCompare(b.name))
   }, [items, sort])
 
+  async function consume(item: Item, what: 'one' | 'opened') {
+    try {
+      const updated = await consumeItem(item.id, what)
+      toast.success(`${updated.name}: ${updated.open_label ?? `${updated.quantity ?? 0}${updated.unit ? ` ${updated.unit}` : ''} left`}`)
+      load()
+    } catch (e) {
+      toast.error(errorText(e, "Couldn't update that item"))
+    }
+  }
+
   async function confirmDelete() {
     if (!deleting) return
     try {
@@ -178,8 +209,8 @@ export default function Inventory() {
     },
     { key: 'location', header: 'Location', width: '13rem', sortValue: i => where(i), cell: i => <span className="text-muted">{where(i)}</span> },
     {
-      key: 'qty', header: 'Qty', width: '7rem', numeric: true, sortValue: i => i.quantity ?? null,
-      cell: i => <span className={i.is_low_stock ? 'font-medium text-warn' : 'text-ink'}>{i.quantity ?? '—'}{i.unit ? ` ${i.unit}` : ''}</span>,
+      key: 'qty', header: 'Qty', width: '11rem', numeric: true, sortValue: i => i.quantity ?? null,
+      cell: i => <Quantity item={i} />,
     },
     { key: 'status', header: 'Status', width: '11rem', sortValue: i => i.expiration_date ?? null, cell: i => <ItemStatus item={i} /> },
     {
@@ -273,6 +304,10 @@ export default function Inventory() {
             onRowClick={i => setEditItem(i)}
             rowActions={i => [
               { label: 'Edit', icon: Edit2, onSelect: () => setEditItem(i) },
+              ...(i.pack_unit && (i.open_amount != null || i.pack_size)
+                ? [{ label: `Use one ${i.pack_unit}`, icon: Minus, onSelect: () => consume(i, 'one') }] : []),
+              ...(i.open_amount != null
+                ? [{ label: 'Finished the open one', icon: PackageCheck, onSelect: () => consume(i, 'opened') }] : []),
               { separator: true },
               { label: 'Delete', icon: Trash2, danger: true, onSelect: () => setDeleting(i) },
             ]}
@@ -284,9 +319,7 @@ export default function Inventory() {
                   <p className="truncate text-ui text-muted">{i.location ? where(i) : i.category?.name || 'No location'}</p>
                   <div className="mt-1 empty:hidden"><ItemStatus item={i} /></div>
                 </div>
-                <span className={cn('text-sm tnum', i.is_low_stock ? 'font-medium text-warn' : 'text-ink')}>
-                  {i.quantity ?? '—'}{i.unit ? ` ${i.unit}` : ''}
-                </span>
+                <Quantity item={i} />
               </div>
             )}
             empty={<EmptyState icon={Search} title="No items found"

@@ -57,12 +57,20 @@ TOOLS = [
            "sublocation": _S("spot within the room, e.g. Spice Pantry"),
            "category": _S("best-fit category, e.g. Books / Media"),
            "author": _S("author/artist/creator for books & media"),
-           "notes": _S("extra details"), "expiration_date": _S("YYYY-MM-DD for food")}, ["name"]),
-    _tool("update_item", "Update an inventory item found by name: quantity, location, category, author/artist, notes, or expiration date. Only pass fields to change.",
+           "notes": _S("extra details"), "expiration_date": _S("YYYY-MM-DD for food"),
+           "open_amount": {"type": "number", "description": "what's left in the opened package: a count of pack_unit pieces (1 bagel), or a fraction 0-1 when there's no pack_unit (0.25 = a quarter of the tub)"},
+           "pack_unit": _S("piece name when counted, singular, e.g. bagel"),
+           "pack_size": {"type": "number", "description": "pieces in a full package, e.g. 6"}}, ["name"]),
+    _tool("update_item", "Update an inventory item found by name: quantity (whole packages), location, category, author/artist, notes, expiration date, or how much is left in the opened package. Only pass fields to change.",
           {"name": _S("item name to find"), "quantity": {"type": "number", "description": "new quantity"},
            "location": _S("new location name"), "sublocation": _S("new sub-location"),
            "category": _S("category name"), "author": _S("author/artist/creator for books & media"),
-           "notes": _S("new notes"), "expiration_date": _S("YYYY-MM-DD")}, ["name"]),
+           "notes": _S("new notes"), "expiration_date": _S("YYYY-MM-DD"),
+           "open_amount": {"type": "number", "description": "what's left in the opened package: a count of pack_unit pieces (1 bagel), or a fraction 0-1 when there's no pack_unit (0.25 = a quarter of the tub)"},
+           "pack_unit": _S("piece name when counted, singular, e.g. bagel"),
+           "pack_size": {"type": "number", "description": "pieces in a full package, e.g. 6"}}, ["name"]),
+    _tool("use_item", "Someone used or ate some of an item counted in pieces (ate a bagel): takes them out of the opened package.",
+          {"name": _S("item name to find"), "count": {"type": "integer", "description": "pieces used, default 1"}}, ["name"]),
     _tool("delete_item", "Mark an inventory item as gone (quantity 0, kept on the list for restocking).",
           {"name": _S("item name to find")}, ["name"]),
     # --- locations ---
@@ -174,8 +182,9 @@ async def execute_tool(name: str, args: dict, db, source: str) -> dict | list | 
     try:
         if name == "find_items":
             items = db.query(Item).filter(Item.name.ilike(f"%{args['search']}%")).limit(10).all()
+            from routers.items import open_label
             return [{"id": i.id, "name": i.name, "quantity": i.quantity, "unit": i.unit,
-                     "location": _loc_str(i.location)} for i in items] or "No matching items."
+                     "open_package": open_label(i), "location": _loc_str(i.location)} for i in items] or "No matching items."
 
         if name == "create_item":
             from routers.chat import find_or_create_category
@@ -193,6 +202,9 @@ async def execute_tool(name: str, args: dict, db, source: str) -> dict | list | 
                     item.expiration_date = date.fromisoformat(args["expiration_date"][:10])
                 except ValueError:
                     return "expiration_date must be YYYY-MM-DD."
+            if any(args.get(k) is not None for k in ("open_amount", "pack_size", "pack_unit")):
+                from routers.items import set_open_package
+                set_open_package(item, args.get("open_amount"), args.get("pack_unit"), args.get("pack_size"))
             db.add(item)
             db.add(AuditLog(action="created", item_name=item.name, changed_by=source,
                             details=f"qty: {item.quantity:g} {item.unit or ''}".strip()))
@@ -224,11 +236,34 @@ async def execute_tool(name: str, args: dict, db, source: str) -> dict | list | 
                     changes.append(f"expires {item.expiration_date.isoformat()}")
                 except ValueError:
                     return "expiration_date must be YYYY-MM-DD."
+            if any(args.get(k) is not None for k in ("open_amount", "pack_size")):
+                from routers.items import set_open_package
+                changes += set_open_package(item, args.get("open_amount"), args.get("pack_unit"), args.get("pack_size"))
             if not changes:
                 return "No fields to change were given."
             db.add(AuditLog(action="updated", item_name=item.name, changed_by=source, details="; ".join(changes)))
             db.commit()
             return f"Updated {item.name}: {', '.join(changes)}."
+
+        if name == "use_item":
+            from routers.items import use_one
+            item = db.query(Item).filter(Item.name.ilike(f"%{args['name']}%")).first()
+            if not item:
+                return f"No item matching '{args['name']}'."
+            count = max(1, int(args.get("count") or 1))
+            try:
+                if item.pack_unit:
+                    for _ in range(count):
+                        detail = use_one(item)
+                else:
+                    item.quantity = max(0.0, (item.quantity or 0) - count)
+                    detail = f"used {count}; {item.quantity:g} left"
+            except ValueError as e:
+                return str(e)
+            db.add(AuditLog(action="updated", item_name=item.name, changed_by=source, details=detail))
+            db.commit()
+            from routers.items import stock_phrase
+            return f"{item.name}: {stock_phrase(item)}." 
 
         if name == "delete_item":
             item = db.query(Item).filter(Item.name.ilike(f"%{args['name']}%")).first()

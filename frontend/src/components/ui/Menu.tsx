@@ -100,7 +100,8 @@ export function Menu({ trigger, items, align = 'end', side = 'bottom', label, cl
             exit={{ opacity: 0 }}
             transition={{ duration: 0.12 }}
             className={cn(
-              'absolute z-50 min-w-[12rem] rounded-control border border-line bg-surface p-1 shadow-overlay',
+              // text-left: menus often sit in right-aligned table cells
+              'absolute z-50 min-w-[12rem] rounded-control border border-line bg-surface p-1 text-left shadow-overlay',
               side === 'bottom' ? 'top-full mt-1' : 'bottom-full mb-1',
               align === 'end' ? 'right-0' : 'left-0',
             )}

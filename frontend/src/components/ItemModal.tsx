@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Button, Dialog, Field, Input, Select, Textarea } from './ui'
+import { Button, Dialog, Field, Input, Select, Tabs, Textarea } from './ui'
 import { cn } from '../lib/utils'
 import { Item, Category, Location, createItem, updateItem, createLocation, createCategory } from '../lib/api'
 import toast from 'react-hot-toast'
@@ -22,6 +22,7 @@ export default function ItemModal({ item, categories, locations, onClose, onSave
   const [newLoc, setNewLoc] = useState({ name: '', sublocation: '' })
   const [newCat, setNewCat] = useState('')
   const [saving, setSaving] = useState(false)
+  const [open, setOpen] = useState<OpenState>(() => openStateOf(item))
 
   useEffect(() => {
     if (item) {
@@ -34,6 +35,7 @@ export default function ItemModal({ item, categories, locations, onClose, onSave
         location_id: String(item.location?.id ?? ''),
         category_id: String(item.category?.id ?? ''),
       })
+      setOpen(openStateOf(item))
     }
   }, [item])
 
@@ -58,6 +60,9 @@ export default function ItemModal({ item, categories, locations, onClose, onSave
     if (!form.name.trim()) { toast.error('Give the item a name'); return }
     if (form.location_id === NEW && !newLoc.name.trim()) { toast.error('Name the new room'); return }
     if (form.category_id === NEW && !newCat.trim()) { toast.error('Name the new category'); return }
+    if (open.mode === 'count' && (!open.unit.trim() || open.count === '')) {
+      toast.error('Say how many are left and what they are, like 1 bagel'); return
+    }
     setSaving(true)
     try {
       let locationId = form.location_id
@@ -81,6 +86,7 @@ export default function ItemModal({ item, categories, locations, onClose, onSave
         location_id: locationId ? parseInt(locationId) : undefined,
         category_id: categoryId ? parseInt(categoryId) : undefined,
         expiration_date: form.expiration_date || null,  // explicit null clears a saved date
+        ...openPayload(open),
       }
       if (item) await updateItem(item.id, payload)
       else await createItem(payload)
@@ -162,6 +168,8 @@ export default function ItemModal({ item, categories, locations, onClose, onSave
           )}
         </div>
 
+        {(isFood || tracking || open.mode !== 'none' || open.unit) && <OpenPackageFields value={open} onChange={setOpen} unit={form.unit} />}
+
         {showExpiration && (
           <Field label="Use by" hint="Leave blank if it doesn't expire">
             <Input type="date" value={form.expiration_date} onChange={e => set('expiration_date', e.target.value)} />
@@ -178,5 +186,67 @@ export default function ItemModal({ item, categories, locations, onClose, onSave
         <button type="submit" hidden />
       </form>
     </Dialog>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// The opened package: "1 package of bagels, 1 bagel left" / "1 tub, a quarter left"
+// ---------------------------------------------------------------------------
+type OpenMode = 'none' | 'count' | 'portion'
+interface OpenState { mode: OpenMode; count: string; unit: string; size: string; portion: number }
+
+function openStateOf(item?: Item | null): OpenState {
+  const base = { count: '', unit: item?.pack_unit ?? '', size: item?.pack_size != null ? String(item.pack_size) : '', portion: 0.5 }
+  if (!item || item.open_amount == null) return { ...base, mode: 'none' }
+  if (item.pack_unit) return { ...base, mode: 'count', count: String(item.open_amount) }
+  return { ...base, mode: 'portion', portion: item.open_amount }
+}
+
+function openPayload(o: OpenState) {
+  return {
+    pack_size: o.size ? parseFloat(o.size) : null,
+    pack_unit: o.mode === 'portion' ? null : o.unit.trim() || null,
+    open_amount: o.mode === 'none' ? null : o.mode === 'count' ? parseFloat(o.count) : o.portion,
+  }
+}
+
+const PORTIONS = [{ v: 0.75, label: '¾' }, { v: 0.5, label: '½' }, { v: 1 / 3, label: '⅓' }, { v: 0.25, label: '¼' }, { v: 0.05, label: 'Almost empty' }]
+
+function OpenPackageFields({ value: o, onChange, unit }: { value: OpenState; onChange: (o: OpenState) => void; unit: string }) {
+  const set = (patch: Partial<OpenState>) => onChange({ ...o, ...patch })
+  const pkg = unit.trim() || 'package'
+  return (
+    <fieldset className="space-y-3 rounded-control border border-line px-3 py-3">
+      <legend className="px-1 text-ui font-medium text-ink">Opened {pkg}</legend>
+      <Tabs label="How much is left in the opened one" value={o.mode} onChange={mode => set({ mode })}
+        tabs={[{ id: 'none', label: 'Not opened' }, { id: 'count', label: 'Count pieces' }, { id: 'portion', label: 'Portion left' }]} />
+      {o.mode === 'count' && (
+        <div className="grid grid-cols-3 gap-3">
+          <Field label="Left"><Input type="number" inputMode="decimal" min={0} value={o.count} onChange={e => set({ count: e.target.value })} placeholder="1" /></Field>
+          <Field label="Piece"><Input value={o.unit} onChange={e => set({ unit: e.target.value })} placeholder="bagel" /></Field>
+          <Field label="Per full one" hint="Optional"><Input type="number" inputMode="numeric" min={1} value={o.size} onChange={e => set({ size: e.target.value })} placeholder="6" /></Field>
+        </div>
+      )}
+      {o.mode === 'portion' && (
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-1.5" role="group" aria-label="Portion left">
+            {PORTIONS.map(p => (
+              <button key={p.label} type="button" aria-pressed={Math.abs(o.portion - p.v) < 0.01} onClick={() => set({ portion: p.v })}
+                className={cn('h-8 min-w-10 rounded-control border px-2.5 text-sm transition-colors',
+                  Math.abs(o.portion - p.v) < 0.01 ? 'border-action bg-action/10 text-action' : 'border-line text-ink hover:border-muted/50')}>
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <label className="flex items-center gap-3 text-ui text-muted">
+            <input type="range" min={5} max={100} step={5} value={Math.round(o.portion * 100)}
+              onChange={e => set({ portion: Number(e.target.value) / 100 })} className="flex-1 accent-[rgb(var(--action))]"
+              aria-label="Portion left, percent" />
+            <span className="w-10 text-right text-ink tnum">{Math.round(o.portion * 100)}%</span>
+          </label>
+        </div>
+      )}
+      {o.mode === 'none' && <p className="text-xs text-muted">Every {pkg} is full. Set what's left once one is opened.</p>}
+    </fieldset>
   )
 }

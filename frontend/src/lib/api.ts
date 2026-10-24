@@ -35,6 +35,10 @@ export interface Item {
   category?: { id: number; name: string; icon?: string; color?: string }
   notes?: string; is_low_stock: boolean
   expiration_date?: string | null; is_expired?: boolean; expires_soon?: boolean
+  /** The opened package: with pack_unit, open_amount counts pieces ("1 bagel");
+   *  without it, open_amount is a fraction of the package (0.25). null = nothing open. */
+  pack_size?: number | null; pack_unit?: string | null; open_amount?: number | null
+  open_fraction?: number | null; open_label?: string | null; effective_quantity?: number | null
   created_at: string; updated_at?: string
 }
 export interface Stats {
@@ -58,6 +62,10 @@ export const updateItem = (id: number, data: Partial<Item>) =>
 
 export const deleteItem = (id: number) =>
   api.delete(`/items/${id}`).then(r => r.data)
+
+/** 'one' = take one piece from the open package; 'opened' = the open package is finished */
+export const useItem = (id: number, what: 'one' | 'opened') =>
+  api.post<Item>(`/items/${id}/use`, { what }).then(r => r.data)
 
 /** Which of Emerald's brains answered; `fallback` means the backup did */
 export interface ChatBrain { provider: string; label?: string; model?: string | null; fallback?: boolean }
