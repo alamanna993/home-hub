@@ -5,7 +5,8 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      '/api': { target: 'http://localhost:8000', rewrite: (p) => p.replace(/^\/api/, '') },
+      // API_TARGET overrides the backend for local dev (e.g. when :8000 is taken)
+      '/api': { target: process.env.API_TARGET || 'http://localhost:8000', rewrite: (p) => p.replace(/^\/api/, '') },
     },
   },
 })

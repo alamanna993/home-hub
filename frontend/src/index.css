@@ -2,30 +2,110 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Design tokens — RGB triplets so Tailwind can apply alpha (see tailwind.config.js).
+   Light is the default; the `.dark` class on <html> (set by ThemeProvider and the
+   inline script in index.html) switches to dark. */
 @layer base {
+  :root {
+    --canvas: 243 245 247;       /* #F3F5F7 */
+    --surface: 255 255 255;      /* #FFFFFF */
+    --ink: 24 32 43;             /* #18202B */
+    --muted: 90 101 117;         /* #5A6575 */
+    --line: 220 225 232;         /* #DCE1E8 */
+    --action: 43 76 126;         /* #2B4C7E ledger blue */
+    --action-hover: 34 61 102;   /* #223D66 */
+    --on-action: 255 255 255;
+    --emerald: 11 122 90;        /* #0B7A5A — Emerald only */
+    --on-emerald: 255 255 255;
+    --warn: 178 107 0;           /* #B26B00 */
+    --danger: 180 35 24;         /* #B42318 */
+    --danger-hover: 145 32 24;   /* #912018 */
+    --shadow: 16 24 40;
+    color-scheme: light;
+  }
+
+  .dark {
+    --canvas: 14 19 25;          /* #0E1319 */
+    --surface: 21 27 35;         /* #151B23 */
+    --ink: 230 234 240;          /* #E6EAF0 */
+    --muted: 140 151 168;        /* #8C97A8 */
+    --line: 38 48 64;            /* #263040 */
+    --action: 127 163 217;       /* #7FA3D9 */
+    --action-hover: 155 184 227; /* #9BB8E3 */
+    --on-action: 14 19 25;
+    --emerald: 52 199 150;       /* #34C796 */
+    --on-emerald: 14 19 25;
+    --warn: 229 161 58;          /* #E5A13A — lifted for contrast on dark */
+    --danger: 241 120 108;       /* #F1786C — lifted for contrast on dark */
+    --danger-hover: 245 151 141;
+    --shadow: 0 0 0;
+    color-scheme: dark;
+  }
+
   * { box-sizing: border-box; }
-  body { background: #0f1117; }
-  ::-webkit-scrollbar { width: 6px; height: 6px; }
-  ::-webkit-scrollbar-track { background: #0f1117; }
-  ::-webkit-scrollbar-thumb { background: #2a2d3a; border-radius: 3px; }
-  ::-webkit-scrollbar-thumb:hover { background: #6366f1; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    background: rgb(var(--canvas));
+    color: rgb(var(--ink));
+    font-size: 14px;
+    line-height: 20px;
+  }
+
+  /* One visible focus ring for every focusable element, keyboard only */
+  :focus-visible {
+    outline: 2px solid rgb(var(--action));
+    outline-offset: 2px;
+  }
+
+  ::selection { background: rgb(var(--action) / 0.22); }
+
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: rgb(var(--line));
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    border-radius: 6px;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: rgb(var(--muted) / 0.6); background-clip: padding-box; }
+
   /* iOS Safari zooms into focused inputs under 16px; the app's text-sm fields trigger it */
   @media (max-width: 1023px) {
     input, select, textarea { font-size: 16px; }
   }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
 }
 
 @layer utilities {
+  /* Data: numbers line up in columns */
+  .tnum { font-variant-numeric: tabular-nums; }
+
+  /* Legacy helpers, retargeted at the tokens until their pages are rebuilt */
   .glass {
-    background: rgba(26, 29, 39, 0.8);
-    backdrop-filter: blur(12px);
-    border: 1px solid rgba(42, 45, 58, 0.8);
+    background: rgb(var(--surface));
+    border: 1px solid rgb(var(--line));
   }
-  .glow-border {
-    border: 1px solid rgba(99, 102, 241, 0.4);
-    box-shadow: 0 0 20px rgba(99, 102, 241, 0.15);
-  }
+  .glow-border { border: 1px solid rgb(var(--action) / 0.4); }
+
   /* dvh with vh fallback — arbitrary Tailwind values can't express the cascade */
   .h-app { height: 100vh; height: 100dvh; }
   .max-h-modal { max-height: 85vh; max-height: 85dvh; }
 }
+
+/* Pre-redesign pages hard-code `text-white` for body copy, which vanishes on the
+   light canvas. Inside `.legacy` (the main area, until every page is rebuilt) read
+   it as ink, and keep filled accent buttons on their on-action color. Delete this
+   block once no page uses text-white. */
+.legacy .text-white,
+.legacy .hover\:text-white:hover { color: rgb(var(--ink)); }
+.legacy .bg-accent,
+.legacy .bg-accent .text-white,
+.legacy .bg-accent.text-white { color: rgb(var(--on-action)); }

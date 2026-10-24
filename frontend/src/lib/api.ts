@@ -59,8 +59,47 @@ export const updateItem = (id: number, data: Partial<Item>) =>
 export const deleteItem = (id: number) =>
   api.delete(`/items/${id}`).then(r => r.data)
 
+/** Which of Emerald's brains answered; `fallback` means the backup did */
+export interface ChatBrain { provider: string; label?: string; model?: string | null; fallback?: boolean }
+/** An open "where should this go?" question; answer it with clarifyChat */
+export interface ChatPending {
+  id: string; type: 'location' | 'confirm'; question: string; items: string[]; options: string[]
+  placements?: { item: string; location: string | null }[]
+}
+export interface ChatResponse { reply: string; action: string; brain?: ChatBrain | null; pending?: ChatPending | null }
+
+const CHAT_SOURCE = 'dashboard'
+
 export const chat = (message: string) =>
-  api.post<{ reply: string; action: string }>('/chat/', { message, source: 'dashboard' }).then(r => r.data)
+  api.post<ChatResponse>('/chat/', { message, source: CHAT_SOURCE }).then(r => r.data)
+
+export const clarifyChat = (pendingId: string, choice: string) =>
+  api.post<ChatResponse>('/chat/clarify', { source: CHAT_SOURCE, pending_id: pendingId, choice }).then(r => r.data)
+
+/** One of Emerald's brains, as GET /settings/brain-status reports it */
+export interface Brain {
+  provider: string; label: string; model: string | null
+  /** Codex: signed in. Others: reachable / key saved */
+  ready: boolean; detail: string
+  /** Epoch seconds: skipped after a failure until then */
+  paused_until: number | null
+  last_error: string | null
+}
+export interface BrainStatus { primary: Brain | null; backup: Brain | null; active: 'primary' | 'backup' | null }
+
+export const getBrainStatus = () => api.get<BrainStatus>('/settings/brain-status').then(r => r.data)
+
+export interface CodexLogin {
+  status: 'idle' | 'starting' | 'pending' | 'signed_in' | 'error'
+  url: string | null; code: string | null; expires_at: number | null; error: string | null
+  signed_in?: boolean; detail?: string
+}
+export const startCodexLogin = () => api.post<CodexLogin>('/settings/codex/login').then(r => r.data)
+export const getCodexLogin = () => api.get<CodexLogin>('/settings/codex/login').then(r => r.data)
+export const codexLogout = () => api.post('/settings/codex/logout').then(r => r.data)
+export const testBrain = (target: 'primary' | 'backup') =>
+  api.post<{ ok: boolean; provider?: string; label?: string; reply?: string; error?: string }>(
+    `/settings/test-llm?target=${target}`).then(r => r.data)
 
 export const createLocation = (data: { name: string; sublocation?: string; icon?: string }) =>
   api.post<Location>('/locations/', data).then(r => r.data)

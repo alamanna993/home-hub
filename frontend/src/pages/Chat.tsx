@@ -2,9 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Send, Bot, User } from 'lucide-react'
-import { chat } from '../lib/api'
-
-interface Message { role: 'user' | 'bot'; text: string; ts: Date }
+import { useEmeraldChat } from '../hooks/useEmeraldChat'
 
 const SUGGESTIONS = [
   'where is my drill?',
@@ -14,12 +12,11 @@ const SUGGESTIONS = [
   'what food do we have?',
 ]
 
+// Full-page Emerald conversation; shares its state with the slide-over panel.
+// Restyled in the page-rebuild step.
 export default function Chat() {
-  const [messages, setMessages] = useState<Message[]>([
-    { role: 'bot', text: "👋 Hi! Ask me anything about your home inventory — where something is, what you have, or what's running low.", ts: new Date() }
-  ])
+  const { messages, loading, send: sendMessage } = useEmeraldChat()
   const [input, setInput] = useState('')
-  const [loading, setLoading] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const [searchParams, setSearchParams] = useSearchParams()
 
@@ -33,27 +30,18 @@ export default function Chat() {
     }
   }, [])
 
-  async function send(text?: string) {
+  function send(text?: string) {
     const msg = (text || input).trim()
     if (!msg || loading) return
     setInput('')
-    setMessages(m => [...m, { role: 'user', text: msg, ts: new Date() }])
-    setLoading(true)
-    try {
-      const result = await chat(msg)
-      setMessages(m => [...m, { role: 'bot', text: result.reply, ts: new Date() }])
-    } catch {
-      setMessages(m => [...m, { role: 'bot', text: '❌ Could not reach the backend. Is it running?', ts: new Date() }])
-    } finally {
-      setLoading(false)
-    }
+    sendMessage(msg)
   }
 
   return (
     <div className="flex flex-col h-full p-4 sm:p-6 gap-4">
       <div>
-        <h2 className="text-white text-2xl font-bold">Chat</h2>
-        <p className="text-surface-muted text-sm mt-1">Ask your local AI about your home inventory</p>
+        <h2 className="text-white text-2xl font-bold">Emerald</h2>
+        <p className="text-surface-muted text-sm mt-1">Ask your family assistant about anything in the house</p>
       </div>
 
       {/* Suggestions */}
@@ -75,12 +63,12 @@ export default function Chat() {
               className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}
             >
               <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                msg.role === 'bot' ? 'bg-accent/20 text-accent' : 'bg-white/10 text-white'
+                msg.role === 'emerald' ? 'bg-accent/20 text-accent' : 'bg-white/10 text-white'
               }`}>
-                {msg.role === 'bot' ? <Bot size={16} /> : <User size={16} />}
+                {msg.role === 'emerald' ? <Bot size={16} /> : <User size={16} />}
               </div>
               <div className={`max-w-[75%] px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap ${
-                msg.role === 'bot'
+                msg.role === 'emerald'
                   ? 'bg-surface-card border border-surface-border text-white'
                   : 'bg-accent text-white'
               }`}>

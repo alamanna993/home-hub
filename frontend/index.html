@@ -1,14 +1,23 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>HomeHub</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏠</text></svg>" />
+    <meta name="theme-color" content="#F3F5F7" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0E1319" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%232B4C7E'/><path d='M8 15.5 16 9l8 6.5V24h-5.5v-5h-5v5H8z' fill='white'/></svg>" />
+    <script>
+      // Apply the saved theme before first paint so there's no flash (ThemeProvider takes over after).
+      (function () {
+        var pref = 'system'
+        try { pref = localStorage.getItem('hh_theme') || 'system' } catch (e) {}
+        var dark = pref === 'dark' || (pref === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+        if (dark) document.documentElement.classList.add('dark')
+      })()
+    </script>
   </head>
-  <body class="bg-surface text-white font-sans antialiased">
+  <body class="bg-canvas text-ink font-sans antialiased">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
