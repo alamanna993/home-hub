@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronLeft, ChevronRight, Plus, RefreshCw, Trash2, X } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import api, { getEvents, createEvent, deleteEvent, getChores, CalendarEvent, Chore } from '../lib/api'
+import api, { getEvents, createEvent, deleteEvent, getChores, errorText, CalendarEvent, Chore } from '../lib/api'
+import { Badge, Button, Dialog, EmptyState, Field, IconButton, Input, Page, PageHeader } from '../components/ui'
 import { cn } from '../lib/utils'
 import { getUse24, setUse24, formatTime } from '../lib/time'
 import TimeSelect from '../components/TimeSelect'
 
-const COLORS = ['#6366f1', '#22c55e', '#f59e0b', '#ec4899', '#06b6d4', '#ef4444']
+// Event colors are the family's choice per event; ledger blue first
+const COLORS = ['#2B4C7E', '#2B6CB0', '#B7791F', '#B83280', '#0987A0', '#C53030']
+const DEFAULT_COLOR = COLORS[0]
 
 function ymd(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -20,7 +23,8 @@ export default function Calendar() {
   const [title, setTitle] = useState('')
   const [time, setTime] = useState('')
   const [endTime, setEndTime] = useState('')
-  const [color, setColor] = useState(COLORS[0])
+  const [color, setColor] = useState(DEFAULT_COLOR)
+  const [saving, setSaving] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [use24, setUse24State] = useState(getUse24())
 
@@ -34,9 +38,9 @@ export default function Calendar() {
     try {
       await api.post('/calendar/resync')
       load()
-      toast.success('Synced calendars refreshed — note Outlook/Google republish their feeds on their own schedule (can lag 30–60 min)')
+      toast.success('Synced calendars refreshed. Google and Outlook publish changes on their own schedule, which can lag 30 to 60 minutes.')
     } catch {
-      toast.error('Could not refresh')
+      toast.error("Couldn't refresh the synced calendars")
     } finally { setSyncing(false) }
   }
 
@@ -47,19 +51,13 @@ export default function Calendar() {
     return d
   }, [monthStart])
 
-  const days = useMemo(() => {
-    const list: Date[] = []
-    for (let i = 0; i < 42; i++) {
-      const d = new Date(gridStart)
-      d.setDate(d.getDate() + i)
-      list.push(d)
-    }
-    return list
-  }, [gridStart])
+  const days = useMemo(() => Array.from({ length: 42 }, (_, i) => {
+    const d = new Date(gridStart); d.setDate(d.getDate() + i); return d
+  }), [gridStart])
 
   const load = () => {
     const end = new Date(gridStart); end.setDate(end.getDate() + 42)
-    getEvents(gridStart.toISOString(), end.toISOString()).then(setEvents)
+    getEvents(gridStart.toISOString(), end.toISOString()).then(setEvents).catch(() => {})
     getChores().then(setChores).catch(() => {})
   }
   useEffect(() => { load() }, [gridStart])
@@ -89,147 +87,120 @@ export default function Calendar() {
 
   const byDay = useMemo(() => {
     const map: Record<string, CalendarEvent[]> = {}
-    for (const e of events) {
-      const key = e.start.slice(0, 10)
-      ;(map[key] ||= []).push(e)
-    }
+    for (const e of events) (map[e.start.slice(0, 10)] ||= []).push(e)
     return map
   }, [events])
 
-  async function addEvent() {
-    if (!selectedDay || !title.trim()) return
-    if (time && endTime && endTime <= time) {
-      toast.error('End time must be after the start time')
-      return
-    }
-    const start = time ? `${selectedDay}T${time}:00` : `${selectedDay}T00:00:00`
-    const end = time && endTime ? `${selectedDay}T${endTime}:00` : undefined
-    await createEvent({ title: title.trim(), start, end, all_day: !time, color })
-    toast.success('Event added')
-    setTitle(''); setTime(''); setEndTime(''); setSelectedDay(null)
-    load()
+  function openDay(key: string) {
+    setTitle(''); setTime(''); setEndTime(''); setColor(DEFAULT_COLOR); setSelectedDay(key)
   }
 
-  async function remove(id: number) {
-    await deleteEvent(id)
-    toast.success('Event removed')
-    load()
+  async function addEvent() {
+    if (!selectedDay || !title.trim()) return
+    if (time && endTime && endTime <= time) { toast.error('The end time has to be after the start time'); return }
+    const start = time ? `${selectedDay}T${time}:00` : `${selectedDay}T00:00:00`
+    const end = time && endTime ? `${selectedDay}T${endTime}:00` : undefined
+    setSaving(true)
+    try {
+      await createEvent({ title: title.trim(), start, end, all_day: !time, color })
+      toast.success('Event added')
+      setSelectedDay(null); load()
+    } catch (e) { toast.error(errorText(e, "Couldn't add the event")) } finally { setSaving(false) }
+  }
+
+  async function remove(e: CalendarEvent) {
+    try { await deleteEvent(e.id); toast.success(`Removed ${e.title}`); load() } catch (err) { toast.error(errorText(err)) }
   }
 
   const todayKey = ymd(new Date())
   const monthLabel = cursor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+  const isThisMonth = cursor.getMonth() === new Date().getMonth() && cursor.getFullYear() === new Date().getFullYear()
+  const timeRange = (e: CalendarEvent) => e.all_day ? 'All day'
+    : formatTime(e.start.slice(11, 16), use24) + (e.end ? ` to ${formatTime(e.end.slice(11, 16), use24)}` : '')
+
+  const EventRow = ({ e }: { e: CalendarEvent }) => (
+    <li className="flex items-center gap-2.5 py-2">
+      <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: e.color || DEFAULT_COLOR }} aria-hidden />
+      <span className="min-w-0 flex-1 truncate text-sm text-ink">{e.title}</span>
+      {e.read_only && <Badge>Synced</Badge>}
+      <span className="text-ui text-muted tnum">{timeRange(e)}</span>
+      {!e.read_only && <IconButton icon={Trash2} label={`Delete ${e.title}`} size="sm" onClick={() => remove(e)} />}
+    </li>
+  )
+  const ChoreRow = ({ chore, done }: { chore: Chore; done: boolean }) => (
+    <li className="flex items-center gap-2.5 py-2">
+      <span className="w-5 text-center leading-none" aria-hidden>{chore.icon || '🧹'}</span>
+      <span className={cn('min-w-0 flex-1 truncate text-sm', done ? 'text-muted line-through' : 'text-ink')}>{chore.title}</span>
+      {done && <Check size={14} className="text-action" aria-label="Done" />}
+      <span className="text-ui text-muted">{chore.assigned_to || 'Anyone'}</span>
+    </li>
+  )
 
   return (
-    <div className="p-4 sm:p-6 space-y-5">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h2 className="text-white text-2xl font-bold">Calendar</h2>
-          <p className="text-surface-muted text-sm mt-1">Family events and appointments</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button onClick={toggle24} title="Switch between 12-hour and 24-hour times"
-            className="px-2.5 py-2 rounded-lg bg-surface-card border border-surface-border text-surface-muted hover:text-white transition-all text-xs font-medium">
-            {use24 ? '24h' : '12h'}
-          </button>
-          <button onClick={resync} disabled={syncing} title="Re-fetch synced Google/Outlook calendars now"
-            className="p-2 rounded-lg bg-surface-card border border-surface-border text-surface-muted hover:text-white transition-all disabled:opacity-50">
-            <RefreshCw size={16} className={syncing ? 'animate-spin' : ''} />
-          </button>
-          <button onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))}
-            className="p-2 rounded-lg bg-surface-card border border-surface-border text-surface-muted hover:text-white transition-all">
-            <ChevronLeft size={16} />
-          </button>
-          <span className="text-white font-medium min-w-40 text-center">{monthLabel}</span>
-          <button onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))}
-            className="p-2 rounded-lg bg-surface-card border border-surface-border text-surface-muted hover:text-white transition-all">
-            <ChevronRight size={16} />
-          </button>
-        </div>
-      </div>
+    <Page className="max-w-[1440px]">
+      <PageHeader title="Calendar" description={monthLabel}
+        actions={<>
+          <Button size="md" onClick={toggle24} title="Switch between 12-hour and 24-hour times">{use24 ? '24-hour' : '12-hour'}</Button>
+          <IconButton icon={RefreshCw} label="Refresh synced calendars" variant="secondary" onClick={resync}
+            className={syncing ? '[&_svg]:animate-spin' : undefined} disabled={syncing} />
+          <div className="flex items-center gap-1">
+            <IconButton icon={ChevronLeft} label="Previous month" variant="secondary"
+              onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))} />
+            <Button disabled={isThisMonth} onClick={() => { const d = new Date(); d.setDate(1); setCursor(d) }}>Today</Button>
+            <IconButton icon={ChevronRight} label="Next month" variant="secondary"
+              onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))} />
+          </div>
+          <Button variant="primary" icon={Plus} onClick={() => openDay(isThisMonth ? todayKey : ymd(monthStart))}>Add event</Button>
+        </>} />
 
-      {/* Phone: agenda list */}
-      <div className="lg:hidden space-y-2">
+      {/* Phone: agenda */}
+      <div className="space-y-2 lg:hidden">
         {(() => {
           const monthDays = days.filter(d => d.getMonth() === cursor.getMonth())
           const cards = monthDays.filter(d => {
             const key = ymd(d)
             return (byDay[key] || []).length > 0 || choresFor(d).length > 0 || key === todayKey
           })
-          if (cards.length === 0) return (
-            <div className="bg-surface-card border border-surface-border rounded-xl p-6 text-center space-y-3">
-              <p className="text-surface-muted text-sm">No events this month</p>
-              <button onClick={() => setSelectedDay(ymd(monthDays[0]))}
-                className="inline-flex items-center gap-1.5 text-accent text-sm font-medium">
-                <Plus size={14} /> Add an event
-              </button>
-            </div>
-          )
+          if (cards.length === 0) {
+            return (
+              <div className="rounded-panel border border-line bg-surface">
+                <EmptyState title="Nothing this month" action={<Button icon={Plus} onClick={() => openDay(ymd(monthDays[0]))}>Add an event</Button>} />
+              </div>
+            )
+          }
           return cards.map(d => {
             const key = ymd(d)
+            const isToday = key === todayKey
             const dayEvents = byDay[key] || []
             const dayChores = choresFor(d)
-            const isToday = key === todayKey
             return (
-              <div key={key} className={cn('bg-surface-card border rounded-xl p-3', isToday ? 'border-accent/40' : 'border-surface-border')}>
-                <div className="flex items-center gap-2 mb-1.5">
-                  <button onClick={() => setSelectedDay(key)} className="flex items-center gap-2 flex-1 min-w-0 text-left">
-                    <span className={cn(
-                      'inline-flex w-7 h-7 items-center justify-center rounded-full text-xs flex-shrink-0',
-                      isToday ? 'bg-accent text-white font-bold' : 'bg-surface text-surface-muted'
-                    )}>
-                      {d.getDate()}
-                    </span>
-                    <span className="text-white text-sm font-medium">
-                      {d.toLocaleDateString(undefined, { weekday: 'long' })}
-                      {isToday && <span className="text-accent text-xs ml-1.5">Today</span>}
-                    </span>
-                  </button>
-                  <button onClick={() => setSelectedDay(key)} aria-label={`Add event on ${key}`}
-                    className="p-2 rounded-lg text-surface-muted hover:text-accent transition-all">
-                    <Plus size={16} />
-                  </button>
-                </div>
-                {dayEvents.length === 0 && dayChores.length === 0 ? (
-                  <p className="text-surface-muted text-xs pl-9">Nothing planned</p>
-                ) : (
-                  <div className="space-y-1.5">
-                    {dayEvents.map(e => (
-                      <div key={e.id} className="flex items-center gap-2 bg-surface rounded-lg px-3 py-2">
-                        <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: e.color || '#6366f1' }} />
-                        <span className={cn('text-white text-sm flex-1 truncate', e.read_only && 'italic')}>{e.title}</span>
-                        {e.read_only && <span className="text-surface-muted text-[10px]">synced</span>}
-                        {!e.all_day && (
-                          <span className="text-surface-muted text-xs">
-                            {formatTime(e.start.slice(11, 16), use24)}{e.end ? `–${formatTime(e.end.slice(11, 16), use24)}` : ''}
-                          </span>
-                        )}
-                        {!e.read_only && (
-                          <button onClick={() => remove(e.id)} className="p-2 -m-1.5 text-surface-muted hover:text-red-400"><Trash2 size={14} /></button>
-                        )}
-                      </div>
-                    ))}
-                    {dayChores.map(({ chore, done }) => (
-                      <div key={`c${chore.id}`} className="flex items-center gap-2 bg-green-500/5 border border-dashed border-green-500/30 rounded-lg px-3 py-2">
-                        <span className="text-base">{done ? '✅' : (chore.icon || '🧹')}</span>
-                        <span className={cn('text-sm flex-1 truncate', done ? 'text-green-400/70 line-through' : 'text-green-300')}>
-                          {chore.title}{chore.assigned_to ? ` — ${chore.assigned_to}` : ''}
-                        </span>
-                        <span className="text-surface-muted text-[10px]">chore</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <section key={key} className={cn('rounded-panel border bg-surface px-3 pt-2.5', isToday ? 'border-action/50' : 'border-line')}>
+                <header className="flex items-center gap-2.5">
+                  <span className={cn('flex h-7 w-7 items-center justify-center rounded-full text-ui tnum',
+                    isToday ? 'bg-action font-semibold text-action-on' : 'bg-canvas text-muted')}>{d.getDate()}</span>
+                  <h2 className="flex-1 text-sm font-medium text-ink">
+                    {d.toLocaleDateString(undefined, { weekday: 'long' })}{isToday && <span className="ml-1.5 text-ui text-action">Today</span>}
+                  </h2>
+                  <IconButton icon={Plus} label={`Add an event on ${d.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}`}
+                    size="sm" onClick={() => openDay(key)} />
+                </header>
+                {dayEvents.length === 0 && dayChores.length === 0
+                  ? <p className="pb-3 pl-9 text-ui text-muted">Nothing planned</p>
+                  : <ul className="divide-y divide-line pl-9">
+                      {dayEvents.map(e => <EventRow key={e.id} e={e} />)}
+                      {dayChores.map(c => <ChoreRow key={`c${c.chore.id}`} {...c} />)}
+                    </ul>}
+              </section>
             )
           })
         })()}
       </div>
 
       {/* Desktop: month grid */}
-      <div className="hidden lg:block bg-surface-card border border-surface-border rounded-2xl overflow-hidden">
-        <div className="grid grid-cols-7 border-b border-surface-border">
+      <div className="hidden overflow-hidden rounded-panel border border-line bg-surface lg:block">
+        <div className="grid grid-cols-7 border-b border-line">
           {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => (
-            <div key={d} className="px-2 py-2 text-center text-xs font-medium text-surface-muted">{d}</div>
+            <div key={d} className="px-2 py-2 text-ui font-medium text-muted">{d}</div>
           ))}
         </div>
         <div className="grid grid-cols-7">
@@ -237,115 +208,79 @@ export default function Calendar() {
             const key = ymd(d)
             const inMonth = d.getMonth() === cursor.getMonth()
             const dayEvents = byDay[key] || []
+            const dayChores = choresFor(d)
+            const isToday = key === todayKey
             return (
-              <button key={i} onClick={() => setSelectedDay(key)}
-                className={cn(
-                  'min-h-24 p-1.5 border-b border-r border-surface-border text-left align-top transition-all hover:bg-white/5',
-                  !inMonth && 'opacity-35',
-                )}>
-                <span className={cn(
-                  'inline-flex w-6 h-6 items-center justify-center rounded-full text-xs',
-                  key === todayKey ? 'bg-accent text-white font-bold' : 'text-surface-muted'
-                )}>
-                  {d.getDate()}
-                </span>
-                <div className="mt-1 space-y-0.5">
-                  {dayEvents.slice(0, 3).map(e => (
-                    <div key={e.id} className={cn('text-[11px] text-white truncate rounded px-1 py-0.5', e.read_only && 'opacity-80 italic')}
-                      style={{ background: `${e.color || '#6366f1'}33`, borderLeft: `2px solid ${e.color || '#6366f1'}` }}>
-                      {!e.all_day && <span className="opacity-70 mr-1">{formatTime(e.start.slice(11, 16), use24)}</span>}
-                      {e.title}
-                    </div>
-                  ))}
-                  {dayEvents.length > 3 && (
-                    <div className="text-[10px] text-surface-muted px-1">+{dayEvents.length - 3} more</div>
-                  )}
-                  {choresFor(d).slice(0, 3).map(({ chore, done }) => (
-                    <div key={`c${chore.id}`}
-                      className={cn('text-[11px] truncate rounded px-1 py-0.5 border border-dashed',
-                        done ? 'text-green-400/70 border-green-500/30 line-through' : 'text-green-300 border-green-500/40 bg-green-500/10')}>
-                      {done ? '✅' : (chore.icon || '🧹')} {chore.title}
-                    </div>
-                  ))}
-                </div>
+              <button key={i} type="button" onClick={() => openDay(key)}
+                aria-label={`${d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}: ${dayEvents.length} events`}
+                className={cn('flex min-h-28 flex-col gap-0.5 border-line p-1.5 text-left transition-colors hover:bg-ink/[0.03]',
+                  i % 7 !== 6 && 'border-r', i < 35 && 'border-b', !inMonth && 'bg-canvas/60', isToday && 'bg-action/[0.04]')}>
+                <span className={cn('mb-0.5 inline-flex h-6 w-6 items-center justify-center rounded-full text-ui tnum',
+                  isToday ? 'bg-action font-semibold text-action-on' : inMonth ? 'text-ink' : 'text-muted/60')}>{d.getDate()}</span>
+                {dayEvents.slice(0, 3).map(e => (
+                  <span key={e.id} className={cn('truncate rounded-sm border-l-2 px-1 py-0.5 text-xs text-ink', !inMonth && 'opacity-60')}
+                    style={{ borderColor: e.color || DEFAULT_COLOR, background: `${e.color || DEFAULT_COLOR}14` }}>
+                    {!e.all_day && <span className="mr-1 text-muted tnum">{formatTime(e.start.slice(11, 16), use24)}</span>}
+                    {e.title}
+                  </span>
+                ))}
+                {dayEvents.length > 3 && <span className="px-1 text-xs text-muted">{dayEvents.length - 3} more</span>}
+                {dayChores.slice(0, 2).map(({ chore, done }) => (
+                  <span key={`c${chore.id}`} className={cn('truncate rounded-sm border border-dashed border-line px-1 py-0.5 text-xs',
+                    done ? 'text-muted line-through' : 'text-ink/80')}>
+                    {chore.icon || '🧹'} {chore.title}
+                  </span>
+                ))}
+                {dayChores.length > 2 && <span className="px-1 text-xs text-muted">{dayChores.length - 2} more chores</span>}
               </button>
             )
           })}
         </div>
       </div>
 
-      {selectedDay && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => setSelectedDay(null)}>
-          <div className="bg-surface-card border border-surface-border rounded-2xl p-5 w-full max-w-md space-y-4 max-h-modal overflow-y-auto"
-            onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between">
-              <h3 className="text-white font-semibold">
-                {new Date(`${selectedDay}T00:00:00`).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
-              </h3>
-              <button onClick={() => setSelectedDay(null)} className="text-surface-muted hover:text-white"><X size={18} /></button>
-            </div>
-
+      <Dialog open={!!selectedDay} onClose={() => setSelectedDay(null)}
+        title={selectedDay ? new Date(`${selectedDay}T00:00:00`).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }) : ''}
+        footer={<>
+          <Button variant="ghost" onClick={() => setSelectedDay(null)}>Close</Button>
+          <Button variant="primary" icon={Plus} loading={saving} disabled={!title.trim()} onClick={addEvent}>Add event</Button>
+        </>}>
+        {selectedDay && (
+          <div className="space-y-5">
             {((byDay[selectedDay] || []).length > 0 || choresFor(new Date(`${selectedDay}T00:00:00`)).length > 0) && (
-              <div className="space-y-1.5">
-                {(byDay[selectedDay] || []).map(e => (
-                  <div key={e.id} className="flex items-center gap-2 bg-surface rounded-lg px-3 py-2 group">
-                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: e.color || '#6366f1' }} />
-                    <span className={cn('text-white text-sm flex-1 truncate', e.read_only && 'italic')}>{e.title}</span>
-                    {e.read_only && <span className="text-surface-muted text-[10px]">synced</span>}
-                    {!e.all_day && (
-                      <span className="text-surface-muted text-xs">
-                        {formatTime(e.start.slice(11, 16), use24)}{e.end ? `–${formatTime(e.end.slice(11, 16), use24)}` : ''}
-                      </span>
-                    )}
-                    {!e.read_only && (
-                      <button onClick={() => remove(e.id)} className="p-2 -m-2 text-surface-muted hover:text-red-400"><Trash2 size={14} /></button>
-                    )}
-                  </div>
-                ))}
-                {choresFor(new Date(`${selectedDay}T00:00:00`)).map(({ chore, done }) => (
-                  <div key={`c${chore.id}`} className="flex items-center gap-2 bg-green-500/5 border border-dashed border-green-500/30 rounded-lg px-3 py-2">
-                    <span className="text-base">{done ? '✅' : (chore.icon || '🧹')}</span>
-                    <span className={cn('text-sm flex-1 truncate', done ? 'text-green-400/70 line-through' : 'text-green-300')}>
-                      {chore.title}{chore.assigned_to ? ` — ${chore.assigned_to}` : ''}
-                    </span>
-                    <span className="text-surface-muted text-[10px]">chore</span>
-                  </div>
-                ))}
-              </div>
+              <ul className="divide-y divide-line rounded-control border border-line px-3">
+                {(byDay[selectedDay] || []).map(e => <EventRow key={e.id} e={e} />)}
+                {choresFor(new Date(`${selectedDay}T00:00:00`)).map(c => <ChoreRow key={`c${c.chore.id}`} {...c} />)}
+              </ul>
             )}
-
-            <div className="space-y-3">
-              <input autoFocus className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
-                placeholder="Event title" value={title} onChange={e => setTitle(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && addEvent()} />
-              <div className="space-y-2.5">
-                <div className="flex items-center gap-2.5">
-                  <span className="text-surface-muted text-xs w-9 flex-shrink-0">Start</span>
+            <form className="space-y-3" onSubmit={e => { e.preventDefault(); addEvent() }}>
+              <Field label="New event">
+                <Input autoFocus value={title} onChange={e => setTitle(e.target.value)} placeholder="Dentist appointment" />
+              </Field>
+              <div className="flex flex-wrap gap-x-6 gap-y-3">
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-ui font-medium text-ink">Starts</span>
                   <TimeSelect value={time} onChange={setTime} use24={use24} emptyLabel="All day" />
                 </div>
-                <div className="flex items-center gap-2.5">
-                  <span className="text-surface-muted text-xs w-9 flex-shrink-0">End</span>
-                  <TimeSelect value={endTime} onChange={setEndTime} use24={use24} emptyLabel="+1 hour" disabled={!time} />
-                </div>
-                <div className="flex items-center gap-2.5 pt-1">
-                  <span className="text-surface-muted text-xs w-9 flex-shrink-0">Color</span>
-                  <div className="flex gap-1.5">
-                    {COLORS.map(c => (
-                      <button key={c} onClick={() => setColor(c)}
-                        className={cn('w-6 h-6 rounded-full transition-all', color === c && 'ring-2 ring-white ring-offset-2 ring-offset-surface-card')}
-                        style={{ background: c }} />
-                    ))}
-                  </div>
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-ui font-medium text-ink">Ends</span>
+                  <TimeSelect value={endTime} onChange={setEndTime} use24={use24} emptyLabel="In an hour" disabled={!time} />
                 </div>
               </div>
-              <button onClick={addEvent} disabled={!title.trim()}
-                className="w-full flex items-center justify-center gap-2 bg-accent hover:bg-accent-hover text-white text-sm font-medium px-4 py-2 rounded-lg transition-all disabled:opacity-50">
-                <Plus size={15} /> Add Event
-              </button>
-            </div>
+              <fieldset>
+                <legend className="mb-1.5 text-ui font-medium text-ink">Color</legend>
+                <div className="flex gap-2">
+                  {COLORS.map(c => (
+                    <button key={c} type="button" onClick={() => setColor(c)} aria-label={`Color ${c}`} aria-pressed={color === c}
+                      className={cn('h-7 w-7 rounded-full ring-offset-2 ring-offset-surface', color === c && 'ring-2 ring-ink')}
+                      style={{ background: c }} />
+                  ))}
+                </div>
+              </fieldset>
+              <button type="submit" hidden />
+            </form>
           </div>
-        </div>
-      )}
-    </div>
+        )}
+      </Dialog>
+    </Page>
   )
 }

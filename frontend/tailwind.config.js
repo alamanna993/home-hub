@@ -29,19 +29,7 @@ export default {
           DEFAULT: token('danger'),
           hover: token('danger-hover'),
         },
-        // `surface` is the new panel color; the old card/border/muted names point at the
-        // new tokens so pages that haven't been rebuilt yet keep rendering.
-        surface: {
-          DEFAULT: token('surface'),
-          card: token('surface'),
-          border: token('line'),
-          muted: token('muted'),
-        },
-        accent: {
-          DEFAULT: token('action'),
-          hover: token('action-hover'),
-          glow: 'rgb(var(--action) / 0.25)',
-        },
+        surface: token('surface'),
       },
       fontFamily: {
         sans: ['"IBM Plex Sans"', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
@@ -65,8 +53,6 @@ export default {
       // Shadows belong to overlays only (menus, dialogs, slide-overs).
       boxShadow: {
         overlay: '0 12px 32px -8px rgb(var(--shadow) / 0.28), 0 2px 6px rgb(var(--shadow) / 0.12)',
-        glow: 'none',
-        card: 'none',
       },
     },
   },

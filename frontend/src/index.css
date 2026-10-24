@@ -88,25 +88,8 @@
   /* Data: numbers line up in columns */
   .tnum { font-variant-numeric: tabular-nums; }
 
-  /* Legacy helpers, retargeted at the tokens until their pages are rebuilt */
-  .glass {
-    background: rgb(var(--surface));
-    border: 1px solid rgb(var(--line));
-  }
-  .glow-border { border: 1px solid rgb(var(--action) / 0.4); }
-
   /* dvh with vh fallback — arbitrary Tailwind values can't express the cascade */
   .h-app { height: 100vh; height: 100dvh; }
   .min-h-app { min-height: 100vh; min-height: 100dvh; }
   .max-h-modal { max-height: 85vh; max-height: 85dvh; }
 }
-
-/* Pre-redesign pages hard-code `text-white` for body copy, which vanishes on the
-   light canvas. Inside `.legacy` (the main area, until every page is rebuilt) read
-   it as ink, and keep filled accent buttons on their on-action color. Delete this
-   block once no page uses text-white. */
-.legacy .text-white,
-.legacy .hover\:text-white:hover { color: rgb(var(--ink)); }
-.legacy .bg-accent,
-.legacy .bg-accent .text-white,
-.legacy .bg-accent.text-white { color: rgb(var(--on-action)); }

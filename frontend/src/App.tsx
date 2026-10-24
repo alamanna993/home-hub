@@ -1,28 +1,30 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import { motion, AnimatePresence, MotionConfig } from 'framer-motion'
 import axios from 'axios'
 import { AuthProvider, useAuth } from './hooks/useAuth'
 import { EmeraldChatProvider } from './hooks/useEmeraldChat'
-import Setup from './pages/Setup'
 import ProtectedRoute from './components/ProtectedRoute'
 import Sidebar from './components/Sidebar'
 import TopBar from './components/TopBar'
 import MobileTopBar from './components/MobileTopBar'
 import EmeraldPanel from './components/EmeraldPanel'
 import Login from './pages/Login'
-import Dashboard from './pages/Dashboard'
-import Inventory from './pages/Inventory'
-import Locations from './pages/Locations'
-import Categories from './pages/Categories'
-import Alerts from './pages/Alerts'
-import Chat from './pages/Chat'
-import Calendar from './pages/Calendar'
-import Meals from './pages/Meals'
-import Recipes from './pages/Recipes'
-import Chores from './pages/Chores'
-import Settings from './pages/Settings'
+
+// Pages load on first visit so the sign-in screen and shell stay small
+const Setup = lazy(() => import('./pages/Setup'))
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const Inventory = lazy(() => import('./pages/Inventory'))
+const Locations = lazy(() => import('./pages/Locations'))
+const Categories = lazy(() => import('./pages/Categories'))
+const Alerts = lazy(() => import('./pages/Alerts'))
+const Chat = lazy(() => import('./pages/Chat'))
+const Calendar = lazy(() => import('./pages/Calendar'))
+const Meals = lazy(() => import('./pages/Meals'))
+const Recipes = lazy(() => import('./pages/Recipes'))
+const Chores = lazy(() => import('./pages/Chores'))
+const Settings = lazy(() => import('./pages/Settings'))
 
 function AppLayout() {
   const navigate = useNavigate()
@@ -73,8 +75,8 @@ function AppLayout() {
         <div className="flex-1 min-w-0 flex flex-col min-h-0">
           <MobileTopBar onMenu={() => setDrawerOpen(true)} />
           <TopBar />
-          {/* `legacy` keeps not-yet-rebuilt pages readable in light mode (see index.css) */}
-          <main className="legacy flex-1 min-w-0 overflow-y-auto">
+          <main className="flex-1 min-w-0 overflow-y-auto">
+            <Suspense fallback={null}>
             <Routes>
               <Route path="/" element={<Dashboard />} />
               <Route path="/inventory" element={<Inventory />} />
@@ -89,6 +91,7 @@ function AppLayout() {
               <Route path="/settings" element={<Settings />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
+            </Suspense>
           </main>
         </div>
 
@@ -121,7 +124,7 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/setup" element={
             <ProtectedRoute>
-              <Setup />
+              <Suspense fallback={null}><Setup /></Suspense>
             </ProtectedRoute>
           } />
           <Route path="/*" element={

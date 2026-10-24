@@ -1,4 +1,5 @@
 import { cn } from '../lib/utils'
+import { controlBase } from './ui'
 
 interface Props {
   value: string            // 'HH:MM' (24h) or '' = unset
@@ -19,7 +20,7 @@ export default function TimeSelect({ value, onChange, use24, emptyLabel, disable
   const compose = (h24: number, m: string) =>
     onChange(`${String(h24).padStart(2, '0')}:${m}`)
 
-  const selectCls = 'bg-surface border border-surface-border rounded-lg px-2 py-2 text-white text-sm focus:outline-none focus:border-accent disabled:opacity-40'
+  const selectCls = cn(controlBase, 'h-10 w-auto px-2 lg:h-9')
 
   function pickHour(raw: string) {
     if (raw === '') { onChange(''); return }
@@ -38,24 +39,25 @@ export default function TimeSelect({ value, onChange, use24, emptyLabel, disable
 
   return (
     <div className="flex items-center gap-1">
-      <select className={selectCls} value={hourValue} onChange={e => pickHour(e.target.value)} disabled={disabled}>
+      <select aria-label="Hour" className={selectCls} value={hourValue} onChange={e => pickHour(e.target.value)} disabled={disabled}>
         <option value="">{emptyLabel}</option>
         {hourOptions.map(o => <option key={o.v} value={o.v}>{o.label}</option>)}
       </select>
-      <span className="text-surface-muted text-sm">:</span>
-      <select className={selectCls} value={minute} disabled={disabled || hour24 == null}
+      <span className="text-sm text-muted" aria-hidden>:</span>
+      <select aria-label="Minutes" className={selectCls} value={minute} disabled={disabled || hour24 == null}
         onChange={e => hour24 != null && compose(hour24, e.target.value)}>
         {MINUTES.map(m => <option key={m} value={m}>{m}</option>)}
       </select>
       {!use24 && (
-        <div className="flex rounded-lg overflow-hidden border border-surface-border">
+        <div className="flex overflow-hidden rounded-control border border-line">
           {(['AM', 'PM'] as const).map(p => (
             <button key={p} type="button" disabled={disabled || hour24 == null}
               onClick={() => hour24 != null && compose((hour24 % 12) + (p === 'PM' ? 12 : 0), minute)}
-              className={cn('px-2 py-2 text-xs font-medium transition-all disabled:opacity-40',
+              aria-pressed={hour24 != null && (p === 'PM') === isPM}
+              className={cn('h-10 px-2.5 text-xs font-medium transition-colors disabled:opacity-40 lg:h-9',
                 hour24 != null && (p === 'PM') === isPM
-                  ? 'bg-accent/25 text-accent'
-                  : 'bg-surface text-surface-muted hover:text-white')}>
+                  ? 'bg-action text-action-on'
+                  : 'bg-surface text-muted hover:text-ink')}>
               {p}
             </button>
           ))}
