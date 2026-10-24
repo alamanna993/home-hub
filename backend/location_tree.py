@@ -139,6 +139,15 @@ def migrate_to_tree(db: Session) -> None:
         gone.add(src.id)
         db.delete(src)
 
+    # Rows saved as one name like "Kitchen - Bottom Turnstyle" (how the old app showed a
+    # room and spot) are a room + spot when the first part is a room that exists.
+    names = {l.name.strip().lower() for l in rows}
+    for loc in rows:
+        if loc.parent_id is None and not (loc.sublocation or "").strip():
+            parts = re.split(r"\s+[-–—/›>]\s+", loc.name.strip(), maxsplit=1)
+            if len(parts) == 2 and parts[0].lower() in names and parts[1]:
+                loc.name, loc.sublocation = parts[0], parts[1]
+
     for loc in rows:   # plain rows become rooms
         if loc.parent_id is None and not (loc.sublocation or "").strip():
             key = loc.name.strip().lower()
