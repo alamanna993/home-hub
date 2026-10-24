@@ -76,6 +76,12 @@ async def build_house_context(db: Session) -> str:
     if meals:
         parts.append("Planned meals:\n" + "\n".join(f"- {m.date.strftime('%a')} {m.meal_type}: {m.title}" for m in meals))
 
+    from models import Recipe
+    recipes = db.query(Recipe).filter(Recipe.deleted_at.is_(None)).order_by(Recipe.title).all()
+    if recipes:
+        names = ", ".join(r.title for r in recipes[:25]) + (", …" if len(recipes) > 25 else "")
+        parts.append(f"Saved recipes ({len(recipes)}): {names}")
+
     chores = db.query(Chore).all()
     if chores:
         lines = []
@@ -572,13 +578,29 @@ async def handle_action(parsed: dict, req: ChatRequest, db: Session) -> dict:
             reply = "🍽️ I don't see any food in the inventory yet. Add items to Kitchen locations (Pantry, Fridge, Freezer) or a Groceries category and ask me again!"
             return {"reply": reply, "action": action}
         inventory_text = "\n".join(item_line(i) for i in food)
+        # The family's own cookbook comes first, ranked by how much is on hand
+        from routers.recipes import ranked_for_tonight
+        saved = ranked_for_tonight(db)
+        saved_text = ""
+        if saved:
+            lines = []
+            for s in saved:
+                line = f"📖 **{s['title']}** — {s['have']} of {s['total']} ingredients on hand"
+                if s["missing"]:
+                    line += f" (need: {', '.join(s['missing'][:4])}{'…' if len(s['missing']) > 4 else ''})"
+                lines.append(line)
+            saved_text = "From your recipes:\n" + "\n".join(lines) + "\n\n"
         prompt = (
             f"{req.message}\n\n"
             "Suggest 2-3 meals I could realistically make using mostly the ingredients listed in the context. "
             "For each meal: give a short name, the ingredients from my inventory it uses (with where each is stored), "
             "and note any common staples I might still need. Be concise."
         )
+        if saved:
+            prompt += " The family's saved recipes are already listed separately — suggest different ideas."
         reply = await generate_response(prompt, context=f"Food currently in the house:\n{inventory_text}", db=db)
+        if saved:
+            reply = saved_text + "Other ideas:\n" + reply
         return {"reply": reply, "action": action}
 
     elif action == "list_items":

@@ -189,7 +189,7 @@ async def login_status(force: bool = False) -> dict:
     except FileNotFoundError:
         signed_in, detail = False, "Codex CLI isn't installed in this container."
     except Exception as e:  # noqa: BLE001 — any failure just means "not ready"
-        signed_in, detail = False, f"Couldn't check Codex sign-in: {e}"
+        signed_in, detail = False, f"Couldn't check Codex sign-in: {e!r}"
     _status_cache.update(at=time.time(), signed_in=signed_in, detail=detail)
     return {"signed_in": signed_in, "detail": detail}
 

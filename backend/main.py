@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from database import engine, Base, settings as app_settings
-from routers import items, locations, categories, chat, calendar, meals, chores, family
+from routers import items, locations, categories, chat, calendar, meals, chores, family, recipes
 from routers import msgraph_router
 from routers import auth as auth_router
 from routers import settings as settings_router
@@ -32,6 +32,7 @@ app.include_router(calendar.router, dependencies=[Depends(get_current_user)])
 app.include_router(meals.router, dependencies=[Depends(get_current_user)])
 app.include_router(chores.router, dependencies=[Depends(get_current_user)])
 app.include_router(family.router, dependencies=[Depends(get_current_user)])
+app.include_router(recipes.router, dependencies=[Depends(get_current_user)])
 app.include_router(msgraph_router.router)
 
 
@@ -129,6 +130,7 @@ def run_migrations():
         conn.execute(text("ALTER TABLE items ADD COLUMN IF NOT EXISTS expiration_date DATE"))
         conn.execute(text("ALTER TABLE chores ADD COLUMN IF NOT EXISTS override_assigned_to VARCHAR(100)"))
         conn.execute(text("ALTER TABLE chores ADD COLUMN IF NOT EXISTS override_until DATE"))
+        conn.execute(text("ALTER TABLE meal_plans ADD COLUMN IF NOT EXISTS recipe_id INTEGER REFERENCES recipes(id) ON DELETE SET NULL"))
 
 
 @app.on_event("startup")
@@ -138,6 +140,7 @@ def startup():
     db = Session(bind=engine)
     try:
         seed_defaults(db)
+        recipes.purge_expired(db)  # Recently deleted keeps recipes for 30 days
     finally:
         db.close()
 

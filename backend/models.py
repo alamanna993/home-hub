@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Float, DateTime, Date, ForeignKey, Text, Boolean
+from sqlalchemy import Column, Integer, String, Float, DateTime, Date, ForeignKey, Text, Boolean, JSON
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -113,7 +113,31 @@ class MealPlan(Base):
     meal_type = Column(String(20), nullable=False, default="dinner")  # breakfast | lunch | dinner | snack
     title = Column(String(200), nullable=False)
     notes = Column(Text, nullable=True)
+    recipe_id = Column(Integer, ForeignKey("recipes.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Recipe(Base):
+    __tablename__ = "recipes"
+
+    id = Column(Integer, primary_key=True)
+    title = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    servings = Column(String(50), nullable=True)         # free text: "4", "6–8", "1 loaf"
+    prep_minutes = Column(Integer, nullable=True)
+    cook_minutes = Column(Integer, nullable=True)
+    ingredients = Column(JSON, nullable=False, default=list)  # one line each: "2 cups flour"
+    steps = Column(JSON, nullable=False, default=list)        # one instruction each, in order
+    tags = Column(JSON, nullable=False, default=list)
+    cuisine = Column(String(100), nullable=True)
+    source_url = Column(String(1000), nullable=True)
+    image_url = Column(String(1000), nullable=True)
+    notes = Column(Text, nullable=True)
+    favorite = Column(Boolean, default=False)
+    created_by = Column(String(100), default="dashboard")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    deleted_at = Column(DateTime, nullable=True)         # soft delete — restorable for 30 days
 
 
 class Chore(Base):

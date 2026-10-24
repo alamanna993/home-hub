@@ -16,6 +16,7 @@ class MealCreate(BaseModel):
     meal_type: str = "dinner"
     title: str
     notes: Optional[str] = None
+    recipe_id: Optional[int] = None
 
 
 class MealUpdate(BaseModel):
@@ -23,6 +24,7 @@ class MealUpdate(BaseModel):
     meal_type: Optional[str] = None
     title: Optional[str] = None
     notes: Optional[str] = None
+    recipe_id: Optional[int] = None
 
 
 def meal_to_dict(m: MealPlan) -> dict:
@@ -32,6 +34,7 @@ def meal_to_dict(m: MealPlan) -> dict:
         "meal_type": m.meal_type,
         "title": m.title,
         "notes": m.notes,
+        "recipe_id": m.recipe_id,
     }
 
 

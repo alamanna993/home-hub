@@ -37,6 +37,15 @@ def _tool(name: str, description: str, params: dict, required: list[str] | None 
 
 
 _S = lambda d: {"type": "string", "description": d}  # noqa: E731
+_A = lambda d: {"type": "array", "items": {"type": "string"}, "description": d}  # noqa: E731
+
+
+def _as_list(value) -> list[str]:
+    """Small models sometimes send a list as one newline/semicolon-separated string."""
+    if isinstance(value, str):
+        import re
+        return [v.strip(" -•") for v in re.split(r"\n|;", value) if v.strip(" -•")]
+    return [str(v) for v in (value or [])]
 
 TOOLS = [
     # --- inventory ---
@@ -100,6 +109,25 @@ TOOLS = [
           ["date", "title"]),
     _tool("remove_meal", "Remove a planned meal found by title (optionally narrowed by date).",
           {"title": _S("meal title or part of it"), "date": _S("optional YYYY-MM-DD")}, ["title"]),
+    # --- recipes ---
+    _tool("find_recipes", "Search saved recipes by name, ingredient, tag, or cuisine (blank = list all). "
+          "Each result says how many ingredients are on hand.",
+          {"search": _S("e.g. 'chicken', 'pasta', 'vegetarian'")}),
+    _tool("get_recipe", "Show one saved recipe in full: ingredients (with what's on hand) and steps.",
+          {"title": _S("recipe title or part of it")}, ["title"]),
+    _tool("save_recipe", "Save a new recipe to the family cookbook.",
+          {"title": _S("recipe name"), "ingredients": _A("one entry per ingredient line, with amounts"),
+           "steps": _A("one entry per instruction, in order"), "servings": _S("e.g. 4"),
+           "prep_minutes": {"type": "integer"}, "cook_minutes": {"type": "integer"},
+           "tags": _A("short tags like dinner, vegetarian"), "description": _S("one-line summary"),
+           "source_url": _S("where it came from"), "notes": _S("family notes")}, ["title"]),
+    _tool("import_recipe_url", "Save a recipe from a web page link into the cookbook.",
+          {"url": _S("full https:// link")}, ["url"]),
+    _tool("plan_recipe", "Put a saved recipe on the meal plan.",
+          {"title": _S("recipe title or part of it"), "date": _S("YYYY-MM-DD"),
+           "meal_type": _S("breakfast|lunch|dinner|snack")}, ["title", "date"]),
+    _tool("delete_recipe", "Move a saved recipe to Recently deleted (restorable for 30 days).",
+          {"title": _S("recipe title or part of it")}, ["title"]),
 ]
 
 
@@ -433,11 +461,75 @@ async def execute_tool(name: str, args: dict, db, source: str) -> dict | list | 
             db.delete(meal); db.commit()
             return f"Removed {title} from {d.strftime('%A %b %d')}."
 
+        if name in ("find_recipes", "get_recipe", "save_recipe", "import_recipe_url", "plan_recipe", "delete_recipe"):
+            return await _recipe_tool(name, args, db, source)
+
         return f"Unknown tool: {name}"
 
     except Exception as e:
         db.rollback()
         return f"Tool error: {e}"
+
+
+async def _recipe_tool(name: str, args: dict, db, source: str):
+    from datetime import datetime as _dt
+    from models import Recipe, MealPlan
+    from routers import recipes as rx
+
+    if name == "find_recipes":
+        found = rx.search_recipes(db, args.get("search") or None)
+        return [rx.recipe_brief(r, db) for r in found[:15]] or "No saved recipes match."
+
+    if name == "save_recipe":
+        title = args["title"].strip()
+        if rx.live_recipes(db).filter(Recipe.title.ilike(title)).first():
+            return f"There's already a recipe called '{title}'."
+        r = Recipe(title=title, ingredients=_as_list(args.get("ingredients")), steps=_as_list(args.get("steps")),
+                   tags=_as_list(args.get("tags")), servings=args.get("servings"),
+                   prep_minutes=args.get("prep_minutes"), cook_minutes=args.get("cook_minutes"),
+                   description=args.get("description"), source_url=args.get("source_url"),
+                   notes=args.get("notes"), created_by=source)
+        db.add(r); db.commit()
+        return f"Saved recipe '{r.title}' ({len(r.ingredients)} ingredients, {len(r.steps)} steps)."
+
+    if name == "import_recipe_url":
+        draft = await rx.fetch_recipe_draft(args["url"], db)
+        draft.pop("imported_by", None)
+        if rx.live_recipes(db).filter(Recipe.title.ilike(draft["title"])).first():
+            return f"'{draft['title']}' is already in the cookbook."
+        r = Recipe(created_by=source, **{k: v for k, v in draft.items() if hasattr(Recipe, k)})
+        db.add(r); db.commit()
+        return f"Saved '{r.title}' from the link ({len(r.ingredients)} ingredients, {len(r.steps)} steps)."
+
+    matches = rx.find_by_title(db, args["title"])
+    if not matches:
+        return f"No saved recipe matching '{args['title']}'."
+    if len(matches) > 1:
+        return {"multiple_matches": [m.title for m in matches]}
+    r = matches[0]
+
+    if name == "get_recipe":
+        lines = rx.pantry_match(r.ingredients or [], rx._food(db))
+        return {"title": r.title, "servings": r.servings, "prep_minutes": r.prep_minutes,
+                "cook_minutes": r.cook_minutes,
+                "ingredients": [l["text"] + {"have": " (on hand)", "missing": " (need)"}.get(l["status"], "")
+                                for l in lines],
+                "steps": r.steps or [], "notes": r.notes}
+
+    if name == "plan_recipe":
+        try:
+            d = date.fromisoformat(args["date"])
+        except ValueError:
+            return "date must be YYYY-MM-DD."
+        meal_type = (args.get("meal_type") or "dinner").lower()
+        if meal_type not in rx.MEAL_TYPES:
+            meal_type = "dinner"
+        db.add(MealPlan(date=d, meal_type=meal_type, title=r.title, recipe_id=r.id)); db.commit()
+        return f"Planned {r.title} for {meal_type} on {d.strftime('%A %b %d')}."
+
+    if name == "delete_recipe":
+        r.deleted_at = _dt.utcnow(); db.commit()
+        return f"Moved '{r.title}' to Recently deleted — it can be restored for 30 days."
 
 
 def _system_prompt(context: str) -> str:

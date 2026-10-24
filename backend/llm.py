@@ -21,7 +21,7 @@ Available actions:
 - add_event: user wants to put something on the calendar (set "item" to the event title, "datetime" to ISO 8601 resolved from today's date)
 - add_chore: user wants to CREATE a new chore/recurring task (set "item" to the chore title, "person" to the assignee if mentioned, "frequency" to once|daily|weekly|biweekly|monthly, and "icon" to ONE emoji that matches the chore — 🗑️ trash, 🍽️ dishes, 🐕 walk the dog, 🧺 laundry, 🛏️ make the bed — never a generic broom unless it's actually sweeping)
 - complete_chore: user says an existing chore is DONE (set "item" to the chore name, "person" to who did it if mentioned)
-- unknown: anything else — questions, chit-chat, AND requests to edit/delete/rename events, chores, meals, locations, categories, or family members (a smarter assistant handles those; do NOT force them into the actions above)
+- unknown: anything else — questions, chit-chat, ANY request about saved RECIPES (save, find, show, import a link, plan, delete), AND requests to edit/delete/rename events, chores, meals, locations, categories, or family members (a smarter assistant handles those; do NOT force them into the actions above)
 
 Respond ONLY with valid JSON in this format (always a top-level "actions" array, even for one action):
 {{
@@ -88,6 +88,7 @@ Examples (each -> the "actions" array):
 - "how are you?" / "what's on the calendar this week?" -> [{{"action": "unknown", ...}}]
 - "cancel the dentist appointment" / "delete the water plants chore" / "reassign dishes to Sam" -> [{{"action": "unknown", ...}}]
 - "add a location called Attic" / "rename the garage to Workshop" / "add Sam to the family" -> [{{"action": "unknown", ...}}]
+- "save this recipe: pancakes — 2 cups flour, 2 eggs…" / "what recipes use chicken?" / "save https://example.com/lasagna" / "put the lasagna recipe on thursday" -> [{{"action": "unknown", ...}}]
 """
 
 
@@ -394,6 +395,18 @@ async def _parse_with(provider: str, db, user_message: str, system_prompt: str) 
                                           base_url=f"{host}/v1", json_mode=False)
     host = _db_setting(db, "ollama_host", env_settings.ollama_host)
     return await _parse_ollama(user_message, host, model, system_prompt)
+
+
+async def structured_json(db, system: str, message: str, schema: dict) -> dict:
+    """One-off structured extraction (e.g. a recipe from page text) on Emerald's brains.
+    Codex enforces `schema`; other providers are steered by the prompt alone."""
+    async def run(provider):
+        if provider == "codex":
+            from codex_brain import codex_parse
+            return await codex_parse(system, message, schema, **codex_options(db))
+        prompt = system + "\n\nRespond ONLY with valid JSON matching this schema:\n" + json.dumps(schema)
+        return await _parse_with(provider, db, message, prompt)
+    return await with_fallback(db, run)
 
 
 async def parse_message(user_message: str, db=None) -> list[dict]:
