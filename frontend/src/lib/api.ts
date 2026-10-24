@@ -136,6 +136,7 @@ export const deleteEvent = (id: number) =>
 export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack'
 export interface Meal {
   id: number; date: string; meal_type: MealType; title: string; notes?: string
+  recipe_id?: number | null
 }
 
 export const getMeals = (start?: string, end?: string) =>
@@ -216,5 +217,51 @@ export const createUser = (data: { username: string; password: string; role: str
 
 export const deleteUser = (id: number) =>
   api.delete(`/auth/users/${id}`).then(r => r.data)
+
+// ---- Recipes ----
+export interface PantrySummary { have: number; total: number; missing: string[] }
+export interface PantryLine {
+  text: string; status: 'have' | 'missing' | 'staple' | 'heading'
+  item?: string; location?: string | null
+}
+export interface RecipeDraft {
+  title: string; description?: string | null; servings?: string | null
+  prep_minutes?: number | null; cook_minutes?: number | null
+  ingredients: string[]; steps: string[]; tags: string[]
+  cuisine?: string | null; source_url?: string | null; image_url?: string | null
+  notes?: string | null; favorite?: boolean
+  /** Import only: 'page' = read from the site's recipe data, 'emerald' = Emerald structured it */
+  imported_by?: 'page' | 'emerald'
+}
+export interface Recipe extends RecipeDraft {
+  id: number; total_minutes: number | null; favorite: boolean
+  created_by?: string; created_at?: string; updated_at?: string
+  deleted_at?: string | null; days_left?: number
+  pantry?: PantrySummary
+  pantry_lines?: PantryLine[]
+  planned?: { id: number; date: string; meal_type: MealType }[]
+}
+export type RecipeSort = 'recent' | 'title' | 'cookable' | 'quick'
+
+export const getRecipes = (params: { q?: string; tag?: string; sort?: RecipeSort } = {}) =>
+  api.get<Recipe[]>('/recipes/', { params }).then(r => r.data)
+export const getRecipe = (id: number) => api.get<Recipe>(`/recipes/${id}`).then(r => r.data)
+export const createRecipe = (data: RecipeDraft) => api.post<Recipe>('/recipes/', data).then(r => r.data)
+export const updateRecipe = (id: number, data: Partial<RecipeDraft>) =>
+  api.patch<Recipe>(`/recipes/${id}`, data).then(r => r.data)
+export const deleteRecipe = (id: number) => api.delete(`/recipes/${id}`).then(r => r.data)
+export const restoreRecipe = (id: number) => api.post<Recipe>(`/recipes/${id}/restore`).then(r => r.data)
+export const getRecipeTrash = () => api.get<Recipe[]>('/recipes/trash').then(r => r.data)
+export const importRecipe = (data: { url?: string; text?: string }) =>
+  api.post<RecipeDraft>('/recipes/import', data).then(r => r.data)
+export const planRecipe = (id: number, date: string, meal_type: MealType) =>
+  api.post<Meal>(`/recipes/${id}/plan`, { date, meal_type }).then(r => r.data)
+
+/** The server's error message, for toasts */
+export const errorText = (e: unknown, fallback = 'Something went wrong') => {
+  const err = e as { response?: { data?: { detail?: unknown } }; message?: string }
+  const detail = err?.response?.data?.detail
+  return typeof detail === 'string' ? detail : err?.message || fallback
+}
 
 export default api

@@ -1,27 +1,17 @@
-import { BookOpen } from 'lucide-react'
-import { Button, EmptyState, Page, PageHeader, Panel } from '../components/ui'
-import { EmeraldMark } from '../components/EmeraldMark'
-import { useEmeraldChat } from '../hooks/useEmeraldChat'
+import { Route, Routes } from 'react-router-dom'
+import RecipeLibrary from './recipes/RecipeLibrary'
+import RecipeDetail from './recipes/RecipeDetail'
+import RecipeEditor from './recipes/RecipeEditor'
+import RecipeTrash from './recipes/RecipeTrash'
 
-// Placeholder until the recipe library is built (plan, Part 2 and "Recipe pages").
 export default function Recipes() {
-  const { openPanel } = useEmeraldChat()
   return (
-    <Page>
-      <PageHeader title="Recipes" description="Your family's saved recipes, matched against what's in the pantry." />
-      <Panel padded={false}>
-        <EmptyState
-          icon={BookOpen}
-          title="The recipe library is on its way"
-          description="Soon you'll be able to save, import and plan recipes here. For now, Emerald can suggest dinner ideas from what you have."
-          action={
-            <Button variant="secondary" onClick={() => openPanel('What can I make for dinner tonight?')}>
-              <EmeraldMark size={16} className="text-emerald" />
-              Ask Emerald for ideas
-            </Button>
-          }
-        />
-      </Panel>
-    </Page>
+    <Routes>
+      <Route index element={<RecipeLibrary />} />
+      <Route path="new" element={<RecipeEditor />} />
+      <Route path="trash" element={<RecipeTrash />} />
+      <Route path=":id" element={<RecipeDetail />} />
+      <Route path=":id/edit" element={<RecipeEditor />} />
+    </Routes>
   )
 }
