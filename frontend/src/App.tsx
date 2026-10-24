@@ -121,7 +121,7 @@ export default function App() {
           <Route path="/login" element={<div className="legacy"><Login /></div>} />
           <Route path="/setup" element={
             <ProtectedRoute>
-              <div className="legacy"><Setup /></div>
+              <Setup />
             </ProtectedRoute>
           } />
           <Route path="/*" element={

@@ -1,18 +1,21 @@
 import { useEffect, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
 import axios from 'axios'
+import { Badge, IconButton, Input, Select } from './ui'
 
 interface Props {
   provider: string
   value: string
   onChange: (v: string) => void
-  className?: string
+  /** Shown when the list is empty and the field is blank, e.g. "Codex default" */
+  placeholder?: string
+  id?: string
   refreshKey?: number   // bump to force a reload (e.g. after downloading a model)
 }
 
 const CUSTOM = '__custom__'
 
-export default function ModelSelect({ provider, value, onChange, className, refreshKey }: Props) {
+export default function ModelSelect({ provider, value, onChange, placeholder = 'Model name', id, refreshKey }: Props) {
   const [models, setModels] = useState<string[]>([])
   const [source, setSource] = useState<'live' | 'static'>('static')
   const [loading, setLoading] = useState(false)
@@ -34,45 +37,37 @@ export default function ModelSelect({ provider, value, onChange, className, refr
 
   useEffect(() => { load() }, [provider, refreshKey])
 
-  const inputCls = className || 'w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent'
+  const refresh = (
+    <IconButton icon={RefreshCw} label="Refresh model list" onClick={load}
+      className={loading ? '[&_svg]:animate-spin' : undefined} />
+  )
 
   if (custom || models.length === 0) {
     return (
-      <div className="flex gap-2">
-        <input className={inputCls} placeholder="Model name" value={value} onChange={e => onChange(e.target.value)} />
+      <div className="flex items-center gap-1">
+        <Input id={id} placeholder={placeholder} value={value} onChange={e => onChange(e.target.value)} className="flex-1" />
         {models.length > 0 && (
           <button type="button" onClick={() => setCustom(false)}
-            className="text-xs text-surface-muted hover:text-white whitespace-nowrap px-2 transition-colors">
-            pick from list
-          </button>
+            className="whitespace-nowrap px-2 text-ui text-action hover:underline">Pick from list</button>
         )}
-        <button type="button" onClick={load} title="Refresh model list"
-          className="text-surface-muted hover:text-white px-1 transition-colors">
-          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-        </button>
+        {refresh}
       </div>
     )
   }
 
   return (
-    <div className="flex gap-2 items-center">
-      <select
-        className={inputCls}
-        value={models.includes(value) ? value : ''}
+    <div className="flex items-center gap-1">
+      <Select id={id} className="flex-1" value={models.includes(value) ? value : ''}
         onChange={e => {
           if (e.target.value === CUSTOM) { setCustom(true); return }
           onChange(e.target.value)
-        }}
-      >
-        <option value="" disabled>— Choose a model —</option>
+        }}>
+        <option value="" disabled>Choose a model</option>
         {models.map(m => <option key={m} value={m}>{m}</option>)}
-        <option value={CUSTOM}>Custom…</option>
-      </select>
-      <button type="button" onClick={load} title="Refresh model list"
-        className="text-surface-muted hover:text-white px-1 transition-colors flex-shrink-0">
-        <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-      </button>
-      {source === 'live' && <span className="text-[10px] text-green-400 flex-shrink-0">● live</span>}
+        <option value={CUSTOM}>Type a name instead…</option>
+      </Select>
+      {refresh}
+      {source === 'live' && <Badge className="ml-1">Live list</Badge>}
     </div>
   )
 }

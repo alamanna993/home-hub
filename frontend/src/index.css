@@ -97,6 +97,7 @@
 
   /* dvh with vh fallback — arbitrary Tailwind values can't express the cascade */
   .h-app { height: 100vh; height: 100dvh; }
+  .min-h-app { min-height: 100vh; min-height: 100dvh; }
   .max-h-modal { max-height: 85vh; max-height: 85dvh; }
 }
 
