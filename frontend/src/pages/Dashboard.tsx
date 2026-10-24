@@ -1,28 +1,39 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { motion } from 'framer-motion'
-import { AlertTriangle, Clock } from 'lucide-react'
-import { getStats, getLocations, getChores, getMeals, getEvents, Stats, Location, Chore, Meal, CalendarEvent } from '../lib/api'
-import StatCard from '../components/StatCard'
-import { timeAgo } from '../lib/utils'
+import { ReactNode, useEffect, useMemo, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { AlertTriangle, CalendarDays, CheckCircle2, ChevronRight, ClipboardList, RotateCcw, UtensilsCrossed } from 'lucide-react'
+import {
+  getChores, getEvents, getItems, getLocations, getMeals, getStats,
+  type CalendarEvent, type Chore, type Item, type Location, type Meal, type Stats,
+} from '../lib/api'
+import { Badge, Button, DataTable, EmptyState, Page, PageHeader, Panel, Skeleton, type Column } from '../components/ui'
+import { EmeraldMark } from '../components/EmeraldMark'
+import { useEmeraldChat } from '../hooks/useEmeraldChat'
+import { cn, timeAgo } from '../lib/utils'
 import { getUse24, formatTime } from '../lib/time'
 
 function ymd(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+const MEAL_ORDER = { breakfast: 0, lunch: 1, snack: 2, dinner: 3 }
+const MEAL_TIME: Record<string, string> = { breakfast: '08:00', lunch: '12:00', snack: '15:00', dinner: '18:00' }
+
+type Activity = Stats['recent_activity'][number]
+
 const ROOM_FALLBACK_ICONS: Record<string, string> = {
   kitchen: '🍳', garage: '🚗', 'living room': '🛋️', basement: '🏚️', bedroom: '🛏️',
-  office: '💻', bathroom: '🚿', laundry: '🧺', attic: '📦', closet: '🚪',
+  office: '💻', bathroom: '🚿', laundry: '🧺', attic: '📦', closet: '🚪', workshop: '🔧',
 }
 
 export default function Dashboard() {
   const navigate = useNavigate()
+  const { openPanel } = useEmeraldChat()
   const [stats, setStats] = useState<Stats | null>(null)
   const [locations, setLocations] = useState<Location[]>([])
   const [chores, setChores] = useState<Chore[]>([])
   const [meals, setMeals] = useState<Meal[]>([])
   const [events, setEvents] = useState<CalendarEvent[]>([])
+  const [low, setLow] = useState<Item[]>([])
   const [error, setError] = useState<string | null>(null)
 
   function load() {
@@ -36,13 +47,14 @@ export default function Dashboard() {
       getChores().catch(() => []),
       getMeals(ymd(today), ymd(today)).catch(() => []),
       getEvents(start.toISOString(), end.toISOString()).catch(() => []),
-    ]).then(([s, l, c, m, e]) => {
-      setStats(s); setLocations(l); setChores(c); setMeals(m); setEvents(e)
-    }).catch(e => setError(e?.response?.data?.detail || e?.message || 'Could not load stats'))
+      getItems({ low_stock_only: true }).catch(() => []),
+    ]).then(([s, l, c, m, e, lo]) => {
+      setStats(s); setLocations(l); setChores(c); setMeals(m); setEvents(e); setLow(lo)
+    }).catch(e => setError(e?.response?.data?.detail || e?.message || "The overview couldn't load"))
   }
   useEffect(() => { load() }, [])
 
-  // Group sub-locations (Kitchen/Pantry, Kitchen/Fridge…) into one room tile
+  // Group sub-locations (Kitchen/Pantry, Kitchen/Fridge…) into one room
   const rooms = useMemo(() => {
     const map: Record<string, { name: string; icon?: string; count: number }> = {}
     for (const l of locations) {
@@ -60,156 +72,177 @@ export default function Dashboard() {
       c.frequency === 'daily' ||
       (c.frequency === 'weekly' && (c.day_of_week == null || c.day_of_week === weekday)) ||
       (c.frequency === 'monthly' && new Date().getDate() === 1) ||
-      (c.frequency === 'once' && !c.done_this_period)
-    )
+      (c.frequency === 'once' && !c.done_this_period))
   }, [chores])
   const choresDone = todaysChores.filter(c => c.done_this_period).length
-
   const dinner = meals.find(m => m.meal_type === 'dinner')
+
+  // One time-ordered agenda: events, meals at their usual hour, then chores
+  const agenda = useMemo(() => {
+    const rows: { key: string; time: string | null; sort: string; icon: ReactNode; title: ReactNode; meta?: ReactNode; done?: boolean }[] = []
+    for (const e of events) {
+      rows.push({
+        key: `e${e.id}`, time: e.all_day ? null : formatTime(e.start.slice(11, 16), getUse24()), sort: e.all_day ? '00:00' : e.start.slice(11, 16),
+        icon: <span className="h-2 w-2 rounded-full" style={{ background: e.color || 'rgb(var(--action))' }} />,
+        title: e.title, meta: e.all_day ? 'All day' : undefined,
+      })
+    }
+    for (const m of [...meals].sort((a, b) => MEAL_ORDER[a.meal_type] - MEAL_ORDER[b.meal_type])) {
+      rows.push({
+        key: `m${m.id}`, time: null, sort: MEAL_TIME[m.meal_type],
+        icon: <UtensilsCrossed size={14} className="text-muted" />,
+        title: m.recipe_id ? <Link to={`/recipes/${m.recipe_id}`} className="hover:underline">{m.title}</Link> : m.title,
+        meta: <span className="capitalize">{m.meal_type}</span>,
+      })
+    }
+    for (const c of todaysChores) {
+      rows.push({
+        key: `c${c.id}`, time: null, sort: '99', done: c.done_this_period,
+        icon: <span className="text-sm leading-none">{c.icon || '🧹'}</span>,
+        title: c.title, meta: c.assigned_to || 'Anyone',
+      })
+    }
+    return rows.sort((a, b) => a.sort.localeCompare(b.sort))
+  }, [events, meals, todaysChores])
 
   if (error) {
     return (
-      <div className="p-6">
-        <div className="bg-surface-card border border-red-500/30 rounded-2xl p-6 max-w-md mx-auto mt-16 text-center space-y-3">
-          <p className="text-3xl">⚠️</p>
-          <p className="text-white font-medium text-sm">Couldn't load the dashboard</p>
-          <p className="text-surface-muted text-xs">{error}</p>
-          <button onClick={load}
-            className="bg-accent hover:bg-accent-hover text-white text-sm font-medium px-5 py-2 rounded-lg transition-all">
-            Retry
-          </button>
-        </div>
-      </div>
+      <Page>
+        <Panel padded={false} className="mx-auto mt-10 max-w-md">
+          <EmptyState icon={AlertTriangle} title="The overview couldn't load" description={error}
+            action={<Button variant="primary" icon={RotateCcw} onClick={load}>Try again</Button>} />
+        </Panel>
+      </Page>
     )
   }
 
-  if (!stats) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-      </div>
-    )
-  }
+  const today = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
+
+  const activityColumns: Column<Activity>[] = [
+    { key: 'item', header: 'Item', cell: a => <span className="font-medium text-ink">{a.item}</span> },
+    {
+      key: 'action', header: 'Change', width: '7rem',
+      cell: a => <Badge tone={a.action === 'deleted' ? 'danger' : a.action === 'created' ? 'action' : 'neutral'}>
+        {a.action === 'created' ? 'Added' : a.action === 'updated' ? 'Updated' : 'Removed'}
+      </Badge>,
+    },
+    { key: 'details', header: 'Details', hideBelow: 'lg', cell: a => <span className="text-muted">{a.details || '—'}</span> },
+    { key: 'by', header: 'By', width: '8rem', hideBelow: 'xl', cell: a => <span className="text-muted">{a.by}</span> },
+    { key: 'at', header: 'When', width: '6rem', numeric: true, cell: a => <span className="text-muted">{timeAgo(a.at)}</span> },
+  ]
 
   return (
-    <div className="p-6 space-y-6">
-      <div>
-        <h2 className="text-white text-2xl font-bold">Dashboard</h2>
-        <p className="text-surface-muted text-sm mt-1">
-          {new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
-        </p>
-      </div>
+    <Page>
+      <PageHeader title="Overview" description={today}
+        actions={<Button onClick={() => openPanel()}>
+          <EmeraldMark size={16} className="text-emerald" />Ask Emerald
+        </Button>} />
 
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-        <StatCard label="Total Items" value={stats.total_items} icon="📦" color="#6366f1" />
-        <StatCard
-          label="Low Stock" value={stats.low_stock_count} icon="⚠️" color="#f59e0b"
-          alert={stats.low_stock_count > 0}
-          sub={stats.low_stock_count > 0 ? 'needs restocking' : 'all good'}
-        />
-        <StatCard label="Chores Today" value={todaysChores.length ? `${choresDone}/${todaysChores.length}` : '—'}
-          icon="✅" color="#22c55e"
-          sub={todaysChores.length && choresDone === todaysChores.length ? 'all done! 🎉' : undefined} />
-        <StatCard label="Dinner Tonight" value={dinner ? '' : '—'} icon="🍽️" color="#ec4899"
-          sub={dinner ? dinner.title : 'nothing planned yet'} />
-      </div>
+      {/* Key numbers */}
+      <Panel padded={false} className="mb-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4">
+          <Kpi i={0} label="Items tracked" value={stats ? stats.total_items : null} to="/inventory" />
+          <Kpi i={1} label="Running low" value={stats ? stats.low_stock_count : null} to="/alerts"
+            tone={stats && stats.low_stock_count > 0 ? 'warn' : undefined}
+            sub={stats ? (stats.low_stock_count ? 'Needs restocking' : 'Nothing low') : undefined} />
+          <Kpi i={2} label="Chores today" value={stats ? (todaysChores.length ? `${choresDone} of ${todaysChores.length}` : 'None') : null} to="/chores"
+            sub={todaysChores.length && choresDone === todaysChores.length ? 'All done' : undefined} />
+          <Kpi i={3} label="Dinner tonight" value={stats ? (dinner ? null : 'Not planned') : null} to={dinner?.recipe_id ? `/recipes/${dinner.recipe_id}` : '/meals'}
+            text={dinner?.title} />
+        </div>
+      </Panel>
 
-      {/* Rooms — tap to browse that room's inventory */}
-      <div>
-        <h3 className="text-white font-semibold mb-3">Rooms</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-          {rooms.map((room, i) => (
-            <motion.button key={room.name}
-              initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}
-              onClick={() => navigate(`/inventory?location=${encodeURIComponent(room.name)}`)}
-              className="bg-surface-card border border-surface-border hover:border-accent rounded-2xl p-4 flex flex-col items-center gap-2 shadow-card transition-all hover:scale-[1.03] active:scale-95">
-              <span className="text-4xl leading-none">
-                {room.icon || ROOM_FALLBACK_ICONS[room.name.toLowerCase()] || '📍'}
-              </span>
-              <span className="text-white text-sm font-semibold text-center leading-tight">{room.name}</span>
-              <span className="text-surface-muted text-xs">{room.count} item{room.count === 1 ? '' : 's'}</span>
-            </motion.button>
-          ))}
-          {rooms.length === 0 && (
-            <p className="text-surface-muted text-sm col-span-full">No rooms yet — add some on the Locations page.</p>
+      <div className="grid items-start gap-6 lg:grid-cols-3">
+        <Panel title="Today" className="lg:col-span-2" padded={false}
+          actions={<Button size="sm" variant="ghost" onClick={() => navigate('/calendar')}>Open calendar</Button>}>
+          {!stats ? (
+            <div className="space-y-3 p-4">{[0, 1, 2].map(i => <Skeleton key={i} className="h-5" />)}</div>
+          ) : agenda.length === 0 ? (
+            <EmptyState icon={CalendarDays} title="Nothing on today" description="No events, meals, or chores are scheduled." />
+          ) : (
+            <ul className="divide-y divide-line">
+              {agenda.map(r => (
+                <li key={r.key} className="grid grid-cols-[4.5rem_1rem_1fr_auto] items-center gap-3 px-4 py-2.5 text-sm">
+                  <span className="text-ui text-muted tnum">{r.time ?? ''}</span>
+                  <span className="flex justify-center">{r.icon}</span>
+                  <span className={cn('min-w-0 truncate text-ink', r.done && 'text-muted line-through')}>{r.title}</span>
+                  <span className="flex items-center gap-1.5 text-ui text-muted">
+                    {r.done && <CheckCircle2 size={14} className="text-action" aria-label="Done" />}{r.meta}
+                  </span>
+                </li>
+              ))}
+            </ul>
           )}
+        </Panel>
+
+        <div className="space-y-6">
+          <Panel title="Running low" padded={false}
+            actions={low.length > 0 && <Button size="sm" variant="ghost" onClick={() => navigate('/alerts')}>See all</Button>}>
+            {low.length === 0 ? (
+              <p className="px-4 py-3 text-sm text-muted">{stats ? 'Nothing is running low.' : ' '}</p>
+            ) : (
+              <ul className="divide-y divide-line">
+                {low.slice(0, 6).map(i => (
+                  <li key={i.id} className="flex items-center gap-3 px-4 py-2 text-sm">
+                    <span className="min-w-0 flex-1 truncate text-ink">{i.name}</span>
+                    <span className="text-ui text-warn tnum">{i.quantity ?? 0}{i.unit ? ` ${i.unit}` : ''} left</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Panel>
+
+          <Panel title="Rooms" padded={false}
+            actions={<Button size="sm" variant="ghost" onClick={() => navigate('/locations')}>Manage</Button>}>
+            {rooms.length === 0 ? (
+              <p className="px-4 py-3 text-sm text-muted">No rooms yet. <Link to="/locations" className="text-action hover:underline">Add one</Link>.</p>
+            ) : (
+              <ul className="divide-y divide-line">
+                {rooms.slice(0, 8).map(room => (
+                  <li key={room.name}>
+                    <Link to={`/inventory?location=${encodeURIComponent(room.name)}`}
+                      className="flex items-center gap-3 px-4 py-2 text-sm hover:bg-ink/[0.03]">
+                      <span className="w-5 text-center leading-none" aria-hidden>{room.icon || ROOM_FALLBACK_ICONS[room.name.toLowerCase()] || '📍'}</span>
+                      <span className="flex-1 text-ink">{room.name}</span>
+                      <span className="text-ui text-muted tnum">{room.count}</span>
+                      <ChevronRight size={14} className="text-muted" aria-hidden />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Panel>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Today */}
-        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
-          className="bg-surface-card border border-surface-border rounded-2xl p-5 shadow-card">
-          <h3 className="text-white font-semibold mb-4">📅 Today</h3>
-          <div className="space-y-2">
-            {events.map(e => (
-              <div key={e.id} className="flex items-center gap-2.5 text-sm">
-                <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: e.color || '#6366f1' }} />
-                {!e.all_day && <span className="text-surface-muted text-xs font-mono">{formatTime(e.start.slice(11, 16), getUse24())}</span>}
-                <span className="text-white truncate">{e.title}</span>
-              </div>
-            ))}
-            {meals.map(m => (
-              <div key={`m${m.id}`} className="flex items-center gap-2.5 text-sm">
-                <span className="text-base">🍽️</span>
-                <span className="text-surface-muted text-xs capitalize">{m.meal_type}</span>
-                <span className="text-white truncate">{m.title}</span>
-              </div>
-            ))}
-            {todaysChores.filter(c => !c.done_this_period).map(c => (
-              <div key={`c${c.id}`} className="flex items-center gap-2.5 text-sm">
-                <span className="text-base">{c.icon || '🧹'}</span>
-                <span className="text-white truncate">{c.title}</span>
-                {c.assigned_to && <span className="text-surface-muted text-xs ml-auto">{c.assigned_to}</span>}
-              </div>
-            ))}
-            {events.length === 0 && meals.length === 0 && todaysChores.filter(c => !c.done_this_period).length === 0 && (
-              <p className="text-surface-muted text-sm">Nothing on the schedule — enjoy the quiet! ✨</p>
-            )}
-          </div>
-        </motion.div>
+      <Panel title="Recent activity" padded={false} className="mt-6"
+        actions={<ClipboardList size={16} className="text-muted" aria-hidden />}>
+        <DataTable columns={activityColumns} rows={stats?.recent_activity.slice(0, 10) || []} rowKey={a => `${a.at}${a.item}${a.action}`}
+          loading={!stats} caption="Recent inventory activity"
+          empty={<EmptyState title="No activity yet" description="Changes to the inventory show up here." />} />
+      </Panel>
+    </Page>
+  )
+}
 
-        {/* Recent Activity */}
-        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
-          className="bg-surface-card border border-surface-border rounded-2xl p-5 shadow-card">
-          <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
-            <Clock size={16} className="text-accent" /> Recent Activity
-          </h3>
-          {stats.recent_activity.length > 0 ? (
-            <div className="space-y-3">
-              {stats.recent_activity.slice(0, 8).map((a, i) => (
-                <div key={i} className="flex items-start gap-3 text-sm">
-                  <span className="mt-0.5 text-base">
-                    {a.action === 'created' ? '✅' : a.action === 'updated' ? '✏️' : '🗑️'}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-white font-medium truncate">{a.item}</p>
-                    <p className="text-surface-muted text-xs">{a.details}</p>
-                  </div>
-                  <span className="text-surface-muted text-xs flex-shrink-0 mt-0.5">{timeAgo(a.at)}</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-surface-muted text-sm">No activity yet.</p>
-          )}
-        </motion.div>
-      </div>
-
-      {/* Low Stock Alert Banner */}
-      {stats.low_stock_count > 0 && (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-          onClick={() => navigate('/alerts')}
-          className="bg-orange-500/10 border border-orange-500/30 rounded-2xl p-4 flex items-center gap-3 cursor-pointer hover:bg-orange-500/15 transition-all">
-          <AlertTriangle size={20} className="text-orange-400 flex-shrink-0" />
-          <div>
-            <p className="text-orange-300 font-medium text-sm">
-              {stats.low_stock_count} item{stats.low_stock_count > 1 ? 's are' : ' is'} running low
-            </p>
-            <p className="text-orange-400/70 text-xs mt-0.5">Tap to see what needs restocking.</p>
-          </div>
-        </motion.div>
-      )}
-    </div>
+/** One cell of the 2×2 (phone) / 1×4 (desktop) key-number grid; `i` places the dividers */
+function Kpi({ i, label, value, sub, text, to, tone }: {
+  i: number; label: string; value: ReactNode | null; sub?: string; text?: string; to: string; tone?: 'warn'
+}) {
+  return (
+    <Link to={to} className={cn('group block border-line px-4 py-3.5 hover:bg-ink/[0.03] lg:px-5',
+      i % 2 === 0 && 'border-r', i < 2 && 'border-b lg:border-b-0', i === 1 && 'lg:border-r')}>
+      <span className="block text-ui text-muted">{label}</span>
+      <span className="mt-1 block">
+        {text ? (
+          <span className="block truncate text-base font-semibold text-ink group-hover:underline">{text}</span>
+        ) : value === null && !text ? (
+          <Skeleton className="h-7 w-16" />
+        ) : (
+          <span className={cn('block text-2xl font-semibold text-ink tnum', tone === 'warn' && 'text-warn')}>{value}</span>
+        )}
+        {sub && <span className="mt-0.5 block text-xs text-muted">{sub}</span>}
+      </span>
+    </Link>
   )
 }

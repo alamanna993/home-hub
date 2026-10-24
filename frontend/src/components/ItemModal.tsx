@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { X } from 'lucide-react'
+import { Button, Dialog, Field, Input, Select, Textarea } from './ui'
+import { cn } from '../lib/utils'
 import { Item, Category, Location, createItem, updateItem, createLocation, createCategory } from '../lib/api'
 import toast from 'react-hot-toast'
 
@@ -55,9 +55,9 @@ export default function ItemModal({ item, categories, locations, onClose, onSave
   const showExpiration = isFood || Boolean(form.expiration_date)
 
   async function save() {
-    if (!form.name.trim()) return toast.error('Name is required')
-    if (form.location_id === NEW && !newLoc.name.trim()) return toast.error('New location needs a name')
-    if (form.category_id === NEW && !newCat.trim()) return toast.error('New category needs a name')
+    if (!form.name.trim()) { toast.error('Give the item a name'); return }
+    if (form.location_id === NEW && !newLoc.name.trim()) { toast.error('Name the new room'); return }
+    if (form.category_id === NEW && !newCat.trim()) { toast.error('Name the new category'); return }
     setSaving(true)
     try {
       let locationId = form.location_id
@@ -88,145 +88,95 @@ export default function ItemModal({ item, categories, locations, onClose, onSave
       onSaved()
       onClose()
     } catch {
-      toast.error('Failed to save item')
+      toast.error("Couldn't save the item")
     } finally {
       setSaving(false)
     }
   }
 
+  const footer = (
+    <>
+      <Button variant="ghost" onClick={onClose}>Cancel</Button>
+      <Button variant="primary" loading={saving} onClick={save}>{item ? 'Save changes' : 'Add item'}</Button>
+    </>
+  )
+
   return (
-    <AnimatePresence>
-      <motion.div
-        className="fixed inset-0 z-50 flex items-center justify-center p-4"
-        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      >
-        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-        <motion.div
-          className="relative bg-surface-card border border-surface-border rounded-2xl shadow-card w-full max-w-md p-6 max-h-modal overflow-y-auto"
-          initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }}
-        >
-          <div className="flex items-center justify-between mb-5">
-            <h2 className="text-white font-semibold text-lg">{item ? 'Edit Item' : 'Add Item'}</h2>
-            <button onClick={onClose} className="text-surface-muted hover:text-white transition-colors">
-              <X size={18} />
-            </button>
-          </div>
+    <Dialog open onClose={onClose} title={item ? 'Edit item' : 'Add item'} footer={footer}
+      description={item ? `Entered ${new Date(item.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}` : undefined}>
+      <form className="space-y-4" onSubmit={e => { e.preventDefault(); save() }}>
+        <Field label="Name" required>
+          <Input autoFocus value={form.name} onChange={e => set('name', e.target.value)} placeholder="Pasta, drill, router" />
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Quantity">
+            <Input type="number" inputMode="decimal" value={form.quantity} onChange={e => set('quantity', e.target.value)} placeholder="1" />
+          </Field>
+          <Field label="Unit">
+            <Input value={form.unit} onChange={e => set('unit', e.target.value)} placeholder="boxes, lbs, each" />
+          </Field>
+        </div>
 
-          <div className="space-y-3">
-            <div>
-              <label className="text-xs text-surface-muted mb-1 block">Name *</label>
-              <input
-                className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
-                value={form.name} onChange={e => set('name', e.target.value)} placeholder="e.g. Pasta, Drill, Router"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs text-surface-muted mb-1 block">Quantity</label>
-                <input type="number" className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
-                  value={form.quantity} onChange={e => set('quantity', e.target.value)} placeholder="1" />
-              </div>
-              <div>
-                <label className="text-xs text-surface-muted mb-1 block">Unit</label>
-                <input className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
-                  value={form.unit} onChange={e => set('unit', e.target.value)} placeholder="boxes, lbs, ea" />
-              </div>
-            </div>
-            <div className="bg-surface rounded-lg px-3 py-2.5 space-y-2">
-              <label className={`flex items-center gap-2.5 text-sm ${isGrocery ? 'text-surface-muted' : 'text-white cursor-pointer'}`}>
-                <input type="checkbox" className="w-4 h-4 accent-indigo-500"
-                  checked={tracking} disabled={isGrocery}
-                  onChange={e => setForm(f => ({ ...f, track_stock: e.target.checked }))} />
-                Track stock level
-                {isGrocery && <span className="text-[10px] text-green-400 ml-auto">always on for consumables</span>}
-              </label>
-              {tracking && (
-                <div>
-                  <label className="text-xs text-surface-muted mb-1 block">Alert when quantity is at or below</label>
-                  <input type="number" className="w-full bg-surface-card border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
-                    value={form.low_stock_threshold} onChange={e => set('low_stock_threshold', e.target.value)}
-                    placeholder={/kitchen|laundry|pantry|fridge|freezer/i.test(selectedLocName)
-                      ? 'Blank = alert when down to the last 1'
-                      : 'Blank = alert only when out (0)'} />
-                </div>
-              )}
-            </div>
-            <div>
-              <label className="text-xs text-surface-muted mb-1 block">Location</label>
-              <select className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
-                value={form.location_id} onChange={e => set('location_id', e.target.value)}>
-                <option value="">— Select location —</option>
-                {locations.map(l => (
-                  <option key={l.id} value={l.id}>{l.name}{l.sublocation ? ` — ${l.sublocation}` : ''}</option>
-                ))}
-                <option value={NEW}>➕ Create new location…</option>
-              </select>
-              {form.location_id === NEW && (
-                <div className="grid grid-cols-2 gap-2 mt-2">
-                  <input autoFocus className="bg-surface border border-accent/50 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
-                    placeholder="Room (e.g. Kitchen)" value={newLoc.name}
-                    onChange={e => setNewLoc(v => ({ ...v, name: e.target.value }))} />
-                  <input className="bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
-                    placeholder="Spot (optional)" value={newLoc.sublocation}
-                    onChange={e => setNewLoc(v => ({ ...v, sublocation: e.target.value }))} />
-                </div>
-              )}
-            </div>
-            <div>
-              <label className="text-xs text-surface-muted mb-1 block">Category</label>
-              <select className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
-                value={form.category_id} onChange={e => set('category_id', e.target.value)}>
-                <option value="">— Select category —</option>
-                {categories.map(c => (
-                  <option key={c.id} value={c.id}>{c.icon} {c.name}</option>
-                ))}
-                <option value={NEW}>➕ Create new category…</option>
-              </select>
-              {form.category_id === NEW && (
-                <input autoFocus className="w-full mt-2 bg-surface border border-accent/50 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
-                  placeholder="Category name (e.g. Camping Gear)" value={newCat}
-                  onChange={e => setNewCat(e.target.value)} />
-              )}
-            </div>
-            {showExpiration && (
-              <div>
-                <label className="text-xs text-surface-muted mb-1 block">Expiration date</label>
-                <input type="date" className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent [color-scheme:dark]"
-                  value={form.expiration_date} onChange={e => set('expiration_date', e.target.value)} />
-                <p className="text-[10px] text-surface-muted mt-1">Optional — leave blank if it doesn't expire</p>
-              </div>
-            )}
-            {showAuthor && (
-              <div>
-                <label className="text-xs text-surface-muted mb-1 block">Author / Artist</label>
-                <input className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
-                  value={form.author} onChange={e => set('author', e.target.value)}
-                  placeholder="e.g. Brandon Sanderson" />
-              </div>
-            )}
-            <div>
-              <label className="text-xs text-surface-muted mb-1 block">Notes</label>
-              <textarea className="w-full bg-surface border border-surface-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent resize-none"
-                rows={2} value={form.notes} onChange={e => set('notes', e.target.value)} placeholder="Optional notes..." />
-            </div>
-            {item && (
-              <p className="text-[11px] text-surface-muted">
-                Entered {new Date(item.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
-              </p>
-            )}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Location">
+            <Select value={form.location_id} onChange={e => set('location_id', e.target.value)}>
+              <option value="">No location</option>
+              {locations.map(l => (
+                <option key={l.id} value={l.id}>{l.name}{l.sublocation ? ` / ${l.sublocation}` : ''}</option>
+              ))}
+              <option value={NEW}>New location…</option>
+            </Select>
+          </Field>
+          <Field label="Category">
+            <Select value={form.category_id} onChange={e => set('category_id', e.target.value)}>
+              <option value="">No category</option>
+              {categories.map(c => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
+              <option value={NEW}>New category…</option>
+            </Select>
+          </Field>
+        </div>
+        {form.location_id === NEW && (
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="New room"><Input autoFocus placeholder="Kitchen" value={newLoc.name}
+              onChange={e => setNewLoc(v => ({ ...v, name: e.target.value }))} /></Field>
+            <Field label="Spot in the room"><Input placeholder="Optional" value={newLoc.sublocation}
+              onChange={e => setNewLoc(v => ({ ...v, sublocation: e.target.value }))} /></Field>
           </div>
+        )}
+        {form.category_id === NEW && (
+          <Field label="New category"><Input autoFocus placeholder="Camping gear" value={newCat} onChange={e => setNewCat(e.target.value)} /></Field>
+        )}
 
-          <div className="flex gap-3 mt-5">
-            <button onClick={onClose} className="flex-1 py-2 rounded-lg border border-surface-border text-surface-muted hover:text-white hover:border-white/20 text-sm transition-all">
-              Cancel
-            </button>
-            <button onClick={save} disabled={saving}
-              className="flex-1 py-2 rounded-lg bg-accent hover:bg-accent-hover text-white text-sm font-medium transition-all disabled:opacity-50">
-              {saving ? 'Saving…' : item ? 'Save Changes' : 'Add Item'}
-            </button>
-          </div>
-        </motion.div>
-      </motion.div>
-    </AnimatePresence>
+        <div className="space-y-3 rounded-control border border-line px-3 py-3">
+          <label className={cn('flex items-center gap-2.5 text-sm', isGrocery ? 'text-muted' : 'cursor-pointer text-ink')}>
+            <input type="checkbox" className="h-4 w-4 accent-[rgb(var(--action))]" checked={tracking} disabled={isGrocery}
+              onChange={e => setForm(f => ({ ...f, track_stock: e.target.checked }))} />
+            Track stock level
+            {isGrocery && <span className="ml-auto text-xs text-muted">Always on for consumables</span>}
+          </label>
+          {tracking && (
+            <Field label="Warn when the quantity is at or below"
+              hint={/kitchen|laundry|pantry|fridge|freezer/i.test(selectedLocName) ? 'Blank warns at the last one' : 'Blank warns only when it runs out'}>
+              <Input type="number" inputMode="decimal" value={form.low_stock_threshold} onChange={e => set('low_stock_threshold', e.target.value)} />
+            </Field>
+          )}
+        </div>
+
+        {showExpiration && (
+          <Field label="Use by" hint="Leave blank if it doesn't expire">
+            <Input type="date" value={form.expiration_date} onChange={e => set('expiration_date', e.target.value)} />
+          </Field>
+        )}
+        {showAuthor && (
+          <Field label="Author or artist">
+            <Input value={form.author} onChange={e => set('author', e.target.value)} placeholder="Brandon Sanderson" />
+          </Field>
+        )}
+        <Field label="Notes">
+          <Textarea rows={2} value={form.notes} onChange={e => set('notes', e.target.value)} />
+        </Field>
+        <button type="submit" hidden />
+      </form>
+    </Dialog>
   )
 }
