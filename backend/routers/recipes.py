@@ -110,7 +110,8 @@ def pantry_match(ingredients: list[str], food: list) -> list[dict]:
         hit = next((item for tokens, item in keyed if tokens <= words), None)
         if hit:
             loc = hit.location
-            where = (loc.name + (f" / {loc.sublocation}" if loc.sublocation else "")) if loc else None
+            from location_tree import path_str
+            where = path_str(loc) if loc else None
             lines.append({"text": line, "status": "have", "item": hit.name, "location": where})
         elif any(re.search(rf"\b{s}\b", line.lower()) for s in STAPLES):
             lines.append({"text": line, "status": "staple"})

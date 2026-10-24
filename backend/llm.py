@@ -68,13 +68,14 @@ Enrichment rules for add_item — fill out everything you can, the user shouldn'
 
 Location rules for add_item:
 - Set "location" ONLY when the user explicitly says where the item is or goes. Never guess into "location".
-- "location" is always the ROOM. A spot inside a room goes into "sublocation" — if the user names a known spot ("put it in the spice pantry"), set location to its room and sublocation to the spot.
+- "location" is always the ROOM. Where inside the room goes into "sublocation", as a path from the room with " > " between levels, as specific as the user was ("Bookshelf > Right side > Third shelf up"). If the user names a known spot ("put it in the spice pantry"), set location to its room and sublocation to the path down to that spot.
 - A location mentioned once in a list ("... for the freezer") applies only to the item(s) it clearly refers to.
 - When the user did NOT say where, set "suggested_location" to where that kind of item is usually stored — prefer one of the known locations above; otherwise propose a sensible new name (e.g. "Fridge" for milk, "Garage" for tools).
 
 Examples (each -> the "actions" array):
 - "where is my drill?" -> [{{"action": "find_item", "item": "drill", ...}}]
 - "added 2 boxes of pasta to pantry shelf 1" -> [{{"action": "add_item", "item": "pasta", "location": "pantry", "sublocation": "shelf 1", "quantity": 2, "unit": "boxes", ...}}]
+- "the hobbit is in the office on the bookshelf, right side, third shelf up" -> [{{"action": "add_item", "item": "The Hobbit", "author": "J.R.R. Tolkien", "location": "office", "sublocation": "Bookshelf > Right side > Third shelf up", ...}}]
 - "we're out of milk" -> [{{"action": "update_item", "item": "milk", "quantity": 0, ...}}]
 - "just bought 2 gallons of milk" -> [{{"action": "add_item", "item": "milk", "quantity": 2, "unit": "gallons", ...}}]
 - "bought milk, 2 dozen eggs, bread, and chicken for the freezer" -> [{{"action": "add_item", "item": "milk", "suggested_location": "Fridge", ...}}, {{"action": "add_item", "item": "eggs", "quantity": 2, "unit": "dozen", "suggested_location": "Fridge", ...}}, {{"action": "add_item", "item": "bread", "suggested_location": "Pantry", ...}}, {{"action": "add_item", "item": "chicken", "location": "freezer", ...}}]
@@ -88,6 +89,7 @@ Examples (each -> the "actions" array):
 - "bought a 12 pack of paper towels, warn me when we're down to 3" -> [{{"action": "add_item", "item": "paper towels", "quantity": 12, "category": "Cleaning", "low_stock_threshold": 3, "track_stock": true, ...}}]
 - "added chicken to the fridge, use by friday, and we're out of ketchup" -> [{{"action": "add_item", "item": "chicken", "location": "fridge", "expires": "{friday}", ...}}, {{"action": "update_item", "item": "ketchup", "quantity": 0, ...}}]
 - "moved the drill to the garage" -> [{{"action": "update_item", "item": "drill", "location": "garage", ...}}]
+- "put the paprika in the kitchen spice drawer, top row" (paprika is already in the inventory) -> [{{"action": "update_item", "item": "paprika", "location": "kitchen", "sublocation": "Spice drawer > Top row", ...}}]
 - "throw out the broken toaster" -> [{{"action": "remove_item", "item": "toaster", ...}}]
 - "what's running low?" -> [{{"action": "low_stock", ...}}]
 - "what can I make for dinner tonight?" -> [{{"action": "suggest_recipes", ...}}]
@@ -111,7 +113,7 @@ def get_system_prompt(locations: list[str] | None = None, family: list[str] | No
     friday = today + timedelta(days=((4 - today.weekday()) % 7) or 7)
     locations_section = ""
     if locations:
-        locations_section += "\nKnown storage locations in this home: " + ", ".join(locations) + ".\n"
+        locations_section += "\nKnown storage locations in this home (room > spot > spot): " + "; ".join(locations) + ".\n"
     if categories:
         locations_section += "Known item categories: " + ", ".join(categories) + ".\n"
     if family:
@@ -236,18 +238,12 @@ def _keyword_parse(message: str) -> list[dict]:
 
 
 def _known_locations(db) -> list[str]:
-    """Room names, with their sub-locations attached: 'Kitchen [spots: Spice Pantry]'."""
+    """Every location as a path from its room: 'Office > Bookshelf > Right side'."""
     if db is None:
         return []
     try:
-        from models import Location
-        rooms: dict[str, list[str]] = {}
-        for loc in db.query(Location).order_by(Location.name).all():
-            subs = rooms.setdefault(loc.name, [])
-            if loc.sublocation:
-                subs.append(loc.sublocation)
-        return [name + (f" [spots: {', '.join(subs)}]" if subs else "")
-                for name, subs in list(rooms.items())[:20]]
+        from location_tree import tree_order, path_str
+        return [path_str(loc, " > ") for loc, _ in tree_order(db)][:60]
     except Exception:
         return []
 

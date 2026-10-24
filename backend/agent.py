@@ -54,7 +54,7 @@ TOOLS = [
     _tool("create_item", "Add ONE new item to the inventory. For a list of things, call this once per item.",
           {"name": _S("item name"), "quantity": {"type": "number", "description": "how many (default 1)"},
            "unit": _S("e.g. bottles, boxes, lbs"), "location": _S("room it's stored in, e.g. Office"),
-           "sublocation": _S("spot within the room, e.g. Spice Pantry"),
+           "sublocation": _S("where inside the room, as a path: 'Bookshelf > Right side > Third shelf up'"),
            "category": _S("best-fit category, e.g. Books / Media"),
            "author": _S("author/artist/creator for books & media"),
            "notes": _S("extra details"), "expiration_date": _S("YYYY-MM-DD for food"),
@@ -63,7 +63,7 @@ TOOLS = [
            "pack_size": {"type": "number", "description": "pieces in a full package, e.g. 6"}}, ["name"]),
     _tool("update_item", "Update an inventory item found by name: quantity (whole packages), location, category, author/artist, notes, expiration date, or how much is left in the opened package. Only pass fields to change.",
           {"name": _S("item name to find"), "quantity": {"type": "number", "description": "new quantity"},
-           "location": _S("new location name"), "sublocation": _S("new sub-location"),
+           "location": _S("new room"), "sublocation": _S("where inside the room, as a path: 'Bookshelf > Right side'"),
            "category": _S("category name"), "author": _S("author/artist/creator for books & media"),
            "notes": _S("new notes"), "expiration_date": _S("YYYY-MM-DD"),
            "open_amount": {"type": "number", "description": "what's left in the opened package: a count of pack_unit pieces (1 bagel), or a fraction 0-1 when there's no pack_unit (0.25 = a quarter of the tub)"},
@@ -74,13 +74,14 @@ TOOLS = [
     _tool("delete_item", "Mark an inventory item as gone (quantity 0, kept on the list for restocking).",
           {"name": _S("item name to find")}, ["name"]),
     # --- locations ---
-    _tool("list_locations", "List all storage locations (rooms/spots) with item counts.", {}),
-    _tool("create_location", "Create a new storage location (room or spot).",
-          {"name": _S("location name, e.g. Attic"), "sublocation": _S("optional sub-location")}, ["name"]),
-    _tool("update_location", "Rename a location and/or change its sub-location.",
-          {"name": _S("current location name"), "new_name": _S("new name"), "new_sublocation": _S("new sub-location")}, ["name"]),
-    _tool("delete_location", "Delete a location. Fails if items are still stored there.",
-          {"name": _S("location name")}, ["name"]),
+    _tool("list_locations", "List every storage location as a path from its room ('Office > Bookshelf > Right side') with item counts.", {}),
+    _tool("create_location", "Create a storage location. Give the full path; missing levels are created too.",
+          {"name": _S("path from the room, e.g. 'Attic' or 'Office > Bookshelf > Right side'")}, ["name"]),
+    _tool("update_location", "Rename a location and/or move it inside another one.",
+          {"name": _S("the location's path or name, e.g. 'Office > Bookshelf'"), "new_name": _S("new name for that level"),
+           "move_under": _S("path of the new parent, or 'top' to make it a room")}, ["name"]),
+    _tool("delete_location", "Delete a location. Fails if items are stored in it or anywhere inside it.",
+          {"name": _S("the location's path or name")}, ["name"]),
     # --- categories ---
     _tool("list_categories", "List all item categories.", {}),
     _tool("create_category", "Create a new item category.", {"name": _S("category name")}, ["name"]),
@@ -140,9 +141,21 @@ TOOLS = [
 
 
 def _loc_str(loc) -> str:
-    if not loc:
-        return "no location"
-    return loc.name + (f" / {loc.sublocation}" if loc.sublocation else "")
+    from location_tree import path_str
+    return path_str(loc) if loc else "no location"
+
+
+def _find_location(db, path: str):
+    """A location by path ('Office > Bookshelf') or bare name, without creating anything."""
+    from location_tree import resolve_path, split_path
+    segments = split_path(path)
+    loc = resolve_path(db, segments, create=False)
+    # resolve_path stops at the deepest match; only accept it when every level matched
+    if loc is not None and len(segments) > 1:
+        from location_tree import path_of
+        if len(path_of(loc)) < len(segments) and loc.name.lower() != segments[-1].lower():
+            return None
+    return loc
 
 
 _TOOL_SPECS = {t["function"]["name"]: t["function"]["parameters"] for t in TOOLS}
@@ -275,39 +288,59 @@ async def execute_tool(name: str, args: dict, db, source: str) -> dict | list | 
             return f"Marked {item.name} as gone (qty 0, kept for restocking)."
 
         if name == "list_locations":
-            locs = db.query(Location).order_by(Location.name).all()
-            return [{"name": l.name, "sublocation": l.sublocation,
-                     "items": db.query(Item).filter(Item.location_id == l.id).count()} for l in locs]
+            from location_tree import tree_order, path_str, descendant_ids, children_map
+            kids = children_map(db)
+            out = []
+            for loc, _ in tree_order(db):
+                ids = descendant_ids(db, loc.id, kids)
+                out.append({"path": path_str(loc, " > "),
+                            "items": db.query(Item).filter(Item.location_id.in_(ids)).count()})
+            return out or "No locations yet."
 
         if name == "create_location":
-            existing = db.query(Location).filter(Location.name.ilike(args["name"])).first()
-            if existing:
-                return f"Location '{existing.name}' already exists."
-            loc = Location(name=args["name"].strip().title(), sublocation=args.get("sublocation"))
-            db.add(loc); db.commit()
-            return f"Created location {loc.name}."
+            from location_tree import resolve_path, split_path, path_str
+            existing = _find_location(db, args["name"])
+            if existing is not None and existing.name.lower() == split_path(args["name"])[-1].lower():
+                return f"'{path_str(existing)}' already exists."
+            loc = resolve_path(db, split_path(args["name"]))
+            db.commit()
+            return f"Created {path_str(loc)}."
 
         if name == "update_location":
-            loc = db.query(Location).filter(Location.name.ilike(f"%{args['name']}%")).first()
+            from location_tree import path_str, descendant_ids, tidy
+            loc = _find_location(db, args["name"])
             if not loc:
                 return f"No location matching '{args['name']}'."
-            old = loc.name
+            old = path_str(loc)
             if args.get("new_name"):
-                loc.name = args["new_name"].strip().title()
-            if args.get("new_sublocation") is not None:
-                loc.sublocation = args["new_sublocation"] or None
+                loc.name = tidy(args["new_name"])
+            target = (args.get("move_under") or "").strip()
+            if target:
+                if target.lower() in ("top", "none", "room", "top level"):
+                    loc.parent_id = None
+                else:
+                    parent = _find_location(db, target)
+                    if not parent:
+                        return f"No location matching '{target}' to move it into."
+                    if parent.id in descendant_ids(db, loc.id):
+                        return "A location can't go inside itself."
+                    loc.parent_id = parent.id
             db.commit()
-            return f"Updated location {old} → {loc.name}" + (f" / {loc.sublocation}" if loc.sublocation else "") + "."
+            db.refresh(loc)
+            return f"Updated {old} → {path_str(loc)}."
 
         if name == "delete_location":
-            loc = db.query(Location).filter(Location.name.ilike(f"%{args['name']}%")).first()
+            from location_tree import path_str, descendant_ids
+            loc = _find_location(db, args["name"])
             if not loc:
                 return f"No location matching '{args['name']}'."
-            count = db.query(Item).filter(Item.location_id == loc.id).count()
+            count = db.query(Item).filter(Item.location_id.in_(descendant_ids(db, loc.id))).count()
             if count:
-                return f"Can't delete {loc.name} — {count} item(s) are stored there. Move them first."
+                return f"Can't delete {path_str(loc)}: {count} item(s) are stored in it. Move them first."
+            label = path_str(loc)
+            db.query(Location).filter(Location.parent_id == loc.id).update({Location.parent_id: loc.parent_id})
             db.delete(loc); db.commit()
-            return f"Deleted location {loc.name}."
+            return f"Deleted {label}."
 
         if name == "list_categories":
             return [{"name": c.name, "icon": c.icon} for c in db.query(Category).order_by(Category.name).all()]

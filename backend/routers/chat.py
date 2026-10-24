@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from database import get_db
 from models import Item, Location, Category
+from location_tree import path_str, resolve_path, split_path
 from llm import parse_message, generate_response
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -31,7 +32,7 @@ def get_food_inventory(db: Session) -> list[Item]:
     food = []
     for item in items:
         loc = item.location
-        loc_text = f"{loc.name} {loc.sublocation or ''}".lower() if loc else ""
+        loc_text = path_str(loc).lower() if loc else ""
         cat_text = item.category.name.lower() if item.category else ""
         if any(k in loc_text for k in FOOD_LOCATIONS) or any(k in cat_text for k in FOOD_CATEGORIES):
             food.append(item)
@@ -96,11 +97,7 @@ async def build_house_context(db: Session) -> str:
 
 def item_line(item: Item) -> str:
     qty = f"{item.quantity:g} {item.unit or ''}".strip() if item.quantity is not None else "some"
-    loc = ""
-    if item.location:
-        loc = item.location.name
-        if item.location.sublocation:
-            loc += f" / {item.location.sublocation}"
+    loc = path_str(item.location) if item.location else ""
     from routers.items import open_label
     if open_label(item):
         qty += f", {open_label(item)} in the open one"
@@ -111,35 +108,12 @@ def item_line(item: Item) -> str:
 
 
 def find_or_create_location(name: str, sublocation: str | None, db: Session) -> int | None:
-    if not name:
+    """Resolve 'office' + 'bookshelf > right side' (or one combined path) to a location,
+    creating any levels that don't exist yet."""
+    loc = resolve_path(db, split_path(name) + split_path(sublocation))
+    if loc is None:
         return None
-    if sublocation:
-        # A specific spot inside a room ("Kitchen / Spice Pantry") is its own row
-        loc = (db.query(Location)
-               .filter(Location.name.ilike(f"%{name}%"), Location.sublocation.ilike(f"%{sublocation}%"))
-               .first())
-        if not loc:
-            parent = db.query(Location).filter(Location.name.ilike(f"%{name}%")).first()
-            loc = Location(name=parent.name if parent else name.strip().title(),
-                           sublocation=sublocation.strip().title(),
-                           icon=parent.icon if parent else None)
-            db.add(loc)
-            db.commit()
-            db.refresh(loc)
-        return loc.id
-    # Room name — prefer the plain room row over its sub-location rows
-    loc = (db.query(Location).filter(Location.name.ilike(f"%{name}%"))
-           .order_by(Location.sublocation.isnot(None)).first())
-    if loc:
-        return loc.id
-    # Maybe they named a sub-location directly ("put it in the spice pantry")
-    loc = db.query(Location).filter(Location.sublocation.ilike(f"%{name}%")).first()
-    if loc:
-        return loc.id
-    loc = Location(name=name.strip().title())
-    db.add(loc)
     db.commit()
-    db.refresh(loc)
     return loc.id
 
 
@@ -214,6 +188,7 @@ def parse_bulk_list(message: str) -> list[dict] | None:
 
 
 WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+MOVE_VERB_RE = re.compile(r"^\s*(?:please\s+)?(?:put|move|moved|stick|place|store|relocate)\s+(?:the|my|our)\b", re.I)
 
 
 def resolve_datetime_from_text(message: str):
@@ -291,7 +266,7 @@ def get_pending(source: str) -> dict | None:
 
 def location_options(db: Session) -> list[str]:
     seen, options = set(), []
-    for loc in db.query(Location).order_by(Location.name).all():
+    for loc in db.query(Location).filter(Location.parent_id.is_(None)).order_by(Location.name).all():
         if loc.name.lower() not in seen:
             seen.add(loc.name.lower())
             options.append(loc.name)
@@ -352,7 +327,7 @@ def apply_location_to_pending(pending: dict, choice: str, source: str, db: Sessi
             names.append(item.name)
     db.commit()
     loc = db.query(Location).filter(Location.id == loc_id).first()
-    loc_name = loc.name if loc else choice.title()
+    loc_name = path_str(loc) if loc else choice.title()
     PENDING.pop(source, None)
     reply = f"✅ Filed **{', '.join(names) or 'the items'}** under **{loc_name}**."
     return {"reply": reply, "action": "clarified"}
@@ -431,11 +406,7 @@ async def handle_action(parsed: dict, req: ChatRequest, db: Session) -> dict:
     if action == "find_item" and item_name:
         item = find_best_item_match(item_name, db)
         if item:
-            loc_str = ""
-            if item.location:
-                loc_str = item.location.name
-                if item.location.sublocation:
-                    loc_str += f" — {item.location.sublocation}"
+            loc_str = path_str(item.location) if item.location else ""
             from routers.items import open_label
             qty_str = f"{item.quantity:g} {item.unit or ''}".strip() if item.quantity is not None else "some"
             if open_label(item):
@@ -445,13 +416,19 @@ async def handle_action(parsed: dict, req: ChatRequest, db: Session) -> dict:
             reply = f"❌ Couldn't find **{item_name}** in the inventory."
         return {"reply": reply, "action": action, "parsed": parsed}
 
+    elif action == "add_item" and item_name and MOVE_VERB_RE.match(req.message) \
+            and (parsed.get("location") or parsed.get("sublocation")) and find_best_item_match(item_name, db):
+        # "put the paprika in the spice drawer" when paprika is already in the inventory:
+        # that's a move, not a second paprika
+        return await handle_action({**parsed, "action": "update_item", "quantity": None}, req, db)
+
     elif action == "add_item" and item_name:
         from datetime import date
         from routers.items import ItemCreate, create_item
         # Trust "location" only if the user actually said it — models like to guess.
         # An unstated location becomes a suggestion that needs the user's OK.
         loc_name = parsed.get("location")
-        said_spot = (parsed.get("sublocation") or "").lower() in req.message.lower() if parsed.get("sublocation") else False
+        said_spot = any(seg.lower() in req.message.lower() for seg in split_path(parsed.get("sublocation")))
         if loc_name and loc_name.lower() not in req.message.lower() and not said_spot:
             if not parsed.get("suggested_location"):
                 parsed["suggested_location"] = loc_name
@@ -460,7 +437,8 @@ async def handle_action(parsed: dict, req: ChatRequest, db: Session) -> dict:
         suggested = parsed.get("suggested_location")
         if not loc_name and suggested and suggested.lower() in req.message.lower():
             loc_name = suggested
-        loc_id = find_or_create_location(loc_name, parsed.get("sublocation"), db)
+        # A spot only counts when the room was given or the spot itself was said
+        loc_id = find_or_create_location(loc_name, parsed.get("sublocation") if (loc_name or said_spot) else None, db)
         cat_id = find_or_create_category(parsed.get("category"), db)
         expires = None
         if parsed.get("expires"):
@@ -524,7 +502,7 @@ async def handle_action(parsed: dict, req: ChatRequest, db: Session) -> dict:
                 if loc_id:
                     item.location_id = loc_id
                     loc = db.query(Location).filter(Location.id == loc_id).first()
-                    loc_str = loc.name + (f" / {loc.sublocation}" if loc.sublocation else "")
+                    loc_str = path_str(loc)
                     changes.append(f"moved to {loc_str}")
             if parsed.get("notes"):
                 item.notes = parsed["notes"]

@@ -9,6 +9,12 @@ from models import Item, Location, Category, AuditLog
 
 router = APIRouter(prefix="/items", tags=["items"])
 
+
+def _place_text(item: Item) -> str:
+    """Every level of the item's location, lowercased: 'kitchen › fridge › door'."""
+    from location_tree import path_str
+    return path_str(item.location).lower() if item.location else ""
+
 AUTO_TRACK_CATEGORIES = ("grocer", "food", "produce", "cleaning", "laundry")
 AUTO_TRACK_LOCATIONS = ("laundry",)
 
@@ -22,7 +28,7 @@ def is_tracked(item: Item) -> bool:
     everything else is opt-in."""
     if is_grocery_category(item.category):
         return True
-    if item.location and any(p in item.location.name.lower() for p in AUTO_TRACK_LOCATIONS):
+    if item.location and any(p in _place_text(item) for p in AUTO_TRACK_LOCATIONS):
         return True
     return bool(item.track_stock)
 
@@ -32,7 +38,7 @@ THRESHOLD_ONE_LOCATIONS = ("kitchen", "laundry", "pantry", "fridge", "freezer")
 
 
 def default_threshold(item: Item) -> float:
-    if item.location and any(p in item.location.name.lower() for p in THRESHOLD_ONE_LOCATIONS):
+    if item.location and any(p in _place_text(item) for p in THRESHOLD_ONE_LOCATIONS):
         return 1
     return 0
 
@@ -211,6 +217,16 @@ def expires_soon(item: Item) -> bool:
     return item.expiration_date <= date.today() + timedelta(days=EXPIRING_SOON_DAYS)
 
 
+def location_ref(loc) -> dict | None:
+    """An item's place. 'name' is the full path so older clients (the bots) still read well."""
+    if not loc:
+        return None
+    from location_tree import path_of, SEP
+    chain = path_of(loc)
+    return {"id": loc.id, "name": SEP.join(l.name for l in chain), "leaf": loc.name,
+            "room": chain[0].name, "room_id": chain[0].id, "path": [l.name for l in chain], "sublocation": None}
+
+
 def item_to_dict(item: Item) -> dict:
     return {
         "id": item.id,
@@ -221,7 +237,7 @@ def item_to_dict(item: Item) -> dict:
         "author": item.author,
         "track_stock": is_tracked(item),
         "low_stock_threshold": item.low_stock_threshold,
-        "location": {"id": item.location.id, "name": item.location.name, "sublocation": item.location.sublocation} if item.location else None,
+        "location": location_ref(item.location),
         "category": {"id": item.category.id, "name": item.category.name, "icon": item.category.icon, "color": item.category.color} if item.category else None,
         "notes": item.notes,
         "expiration_date": item.expiration_date.isoformat() if item.expiration_date else None,
@@ -243,8 +259,8 @@ def item_to_dict(item: Item) -> dict:
 def list_items(
     search: Optional[str] = None,
     category_id: Optional[int] = None,
-    location_id: Optional[int] = None,
-    location_name: Optional[str] = None,   # matches all sub-locations of a room
+    location_id: Optional[int] = None,     # this location and everything inside it
+    location_name: Optional[str] = None,   # a room by name, and everything inside it
     unlocated: bool = False,               # only items with no location assigned
     low_stock_only: bool = False,
     expiring_only: bool = False,           # expired or expiring within EXPIRING_SOON_DAYS
@@ -256,9 +272,12 @@ def list_items(
     if category_id:
         query = query.filter(Item.category_id == category_id)
     if location_id:
-        query = query.filter(Item.location_id == location_id)
+        from location_tree import descendant_ids
+        query = query.filter(Item.location_id.in_(descendant_ids(db, location_id)))
     if location_name:
-        query = query.join(Location).filter(Location.name.ilike(location_name))
+        from location_tree import descendant_ids
+        room = db.query(Location).filter(Location.parent_id.is_(None), Location.name.ilike(location_name)).first()
+        query = query.filter(Item.location_id.in_(descendant_ids(db, room.id) if room else set()))
     if unlocated:
         query = query.filter(Item.location_id.is_(None))
     items = query.order_by(Item.name).all()

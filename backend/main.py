@@ -130,6 +130,7 @@ def run_migrations():
         conn.execute(text("ALTER TABLE items ADD COLUMN IF NOT EXISTS expiration_date DATE"))
         conn.execute(text("ALTER TABLE chores ADD COLUMN IF NOT EXISTS override_assigned_to VARCHAR(100)"))
         conn.execute(text("ALTER TABLE chores ADD COLUMN IF NOT EXISTS override_until DATE"))
+        conn.execute(text("ALTER TABLE locations ADD COLUMN IF NOT EXISTS parent_id INTEGER REFERENCES locations(id)"))
         conn.execute(text("ALTER TABLE items ADD COLUMN IF NOT EXISTS pack_size FLOAT"))
         conn.execute(text("ALTER TABLE items ADD COLUMN IF NOT EXISTS pack_unit VARCHAR(50)"))
         conn.execute(text("ALTER TABLE items ADD COLUMN IF NOT EXISTS open_amount FLOAT"))
@@ -143,6 +144,8 @@ def startup():
     db = Session(bind=engine)
     try:
         seed_defaults(db)
+        from location_tree import migrate_to_tree
+        migrate_to_tree(db)  # once: flat "Kitchen + spot" rows become a room with spots inside
         recipes.purge_expired(db)  # Recently deleted keeps recipes for 30 days
     finally:
         db.close()

@@ -25,13 +25,23 @@ api.interceptors.response.use(r => r, onUnauthorized)
 axios.interceptors.request.use(attachToken)
 axios.interceptors.response.use(r => r, onUnauthorized)
 
-export interface Location { id: number; name: string; sublocation?: string; icon?: string; description?: string; item_count: number }
+/** One level of the location tree: a room (depth 0) or a spot inside one, to any depth.
+ *  GET /locations/ returns them in tree order: each room followed by what's inside it. */
+export interface Location {
+  id: number; name: string; parent_id: number | null; icon?: string | null; description?: string | null
+  depth: number
+  /** Names from the room down: ['Office', 'Bookshelf', 'Right side'] */
+  path: string[]; path_label: string
+  /** Items stored at exactly this level / here plus everything inside it */
+  item_count: number; total_count: number; child_count: number
+}
 export interface Category { id: number; name: string; icon?: string; color?: string }
 export interface Item {
   id: number; name: string; description?: string
   quantity?: number; unit?: string; author?: string
   track_stock?: boolean; low_stock_threshold?: number
-  location?: { id: number; name: string; sublocation?: string }
+  /** name is the full path ('Office › Bookshelf › Right side'); leaf is this level only */
+  location?: { id: number; name: string; leaf?: string; room?: string; room_id?: number; path?: string[] }
   category?: { id: number; name: string; icon?: string; color?: string }
   notes?: string; is_low_stock: boolean
   expiration_date?: string | null; is_expired?: boolean; expires_soon?: boolean
@@ -59,6 +69,12 @@ export const createItem = (data: Partial<Item>) =>
 
 export const updateItem = (id: number, data: Partial<Item>) =>
   api.patch<Item>(`/items/${id}`, data).then(r => r.data)
+
+export const deleteLocation = (id: number) =>
+  api.delete<{ ok: boolean; moved_items: number; moved_spots: number }>(`/locations/${id}`).then(r => r.data)
+
+/** Native-select label for a location: indented under its parent */
+export const locationOptionLabel = (l: Location) => '\u00A0\u00A0\u00A0'.repeat(l.depth) + (l.depth ? '\u2514 ' : '') + l.name
 
 export const deleteItem = (id: number) =>
   api.delete(`/items/${id}`).then(r => r.data)
@@ -109,10 +125,11 @@ export const testBrain = (target: 'primary' | 'backup') =>
   api.post<{ ok: boolean; provider?: string; label?: string; reply?: string; error?: string }>(
     `/settings/test-llm?target=${target}`).then(r => r.data)
 
-export const createLocation = (data: { name: string; sublocation?: string; icon?: string }) =>
+export const createLocation = (data: { name: string; parent_id?: number | null; icon?: string }) =>
   api.post<Location>('/locations/', data).then(r => r.data)
 
-export const updateLocation = (id: number, data: { name?: string; sublocation?: string; icon?: string; description?: string }) =>
+/** Set move: true to apply parent_id (null makes it a room) */
+export const updateLocation = (id: number, data: { name?: string; parent_id?: number | null; move?: boolean; icon?: string; description?: string }) =>
   api.patch<Location>(`/locations/${id}`, data).then(r => r.data)
 
 export const updateCategory = (id: number, data: { name?: string; icon?: string; color?: string }) =>

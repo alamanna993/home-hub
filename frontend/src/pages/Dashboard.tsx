@@ -54,15 +54,11 @@ export default function Dashboard() {
   }
   useEffect(() => { load() }, [])
 
-  // Group sub-locations (Kitchen/Pantry, Kitchen/Fridge…) into one room
+  // Rooms (top-level locations), counting everything stored anywhere inside them
   const rooms = useMemo(() => {
-    const map: Record<string, { name: string; icon?: string; count: number }> = {}
-    for (const l of locations) {
-      const room = (map[l.name] ||= { name: l.name, icon: undefined, count: 0 })
-      room.count += l.item_count
-      if (!room.icon && l.icon) room.icon = l.icon
-    }
-    return Object.values(map).sort((a, b) => b.count - a.count)
+    return locations.filter(l => l.depth === 0)
+      .map(l => ({ id: l.id, name: l.name, icon: l.icon ?? undefined, count: l.total_count }))
+      .sort((a, b) => b.count - a.count)
   }, [locations])
 
   // Chores that matter today (same rules as the calendar page)
@@ -200,8 +196,8 @@ export default function Dashboard() {
             ) : (
               <ul className="divide-y divide-line">
                 {rooms.slice(0, 8).map(room => (
-                  <li key={room.name}>
-                    <Link to={`/inventory?location=${encodeURIComponent(room.name)}`}
+                  <li key={room.id}>
+                    <Link to={`/inventory?loc=${room.id}`}
                       className="flex items-center gap-3 px-4 py-2 text-sm hover:bg-ink/[0.03]">
                       <span className="w-5 text-center leading-none" aria-hidden>{room.icon || ROOM_FALLBACK_ICONS[room.name.toLowerCase()] || '📍'}</span>
                       <span className="flex-1 text-ink">{room.name}</span>

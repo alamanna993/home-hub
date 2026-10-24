@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Button, Dialog, Field, Input, Select, Tabs, Textarea } from './ui'
 import { cn } from '../lib/utils'
-import { Item, Category, Location, createItem, updateItem, createLocation, createCategory } from '../lib/api'
+import { Item, Category, Location, createItem, updateItem, createLocation, createCategory, locationOptionLabel } from '../lib/api'
 import toast from 'react-hot-toast'
 
 const NEW = '__new__'
@@ -19,7 +19,7 @@ export default function ItemModal({ item, categories, locations, onClose, onSave
     name: '', quantity: '', unit: '', notes: '', author: '', expiration_date: '',
     track_stock: false, low_stock_threshold: '', location_id: '', category_id: '',
   })
-  const [newLoc, setNewLoc] = useState({ name: '', sublocation: '' })
+  const [newLoc, setNewLoc] = useState({ name: '', parent: '' })
   const [newCat, setNewCat] = useState('')
   const [saving, setSaving] = useState(false)
   const [open, setOpen] = useState<OpenState>(() => openStateOf(item))
@@ -46,9 +46,10 @@ export default function ItemModal({ item, categories, locations, onClose, onSave
     ? newCat
     : categories.find(c => String(c.id) === form.category_id)?.name || ''
   const showAuthor = /book|media|dvd|vinyl|comic|magazine/i.test(selectedCatName) || Boolean(form.author)
+  // The whole path, so a fridge inside the kitchen still reads as kitchen
   const selectedLocName = form.location_id === NEW
-    ? newLoc.name
-    : locations.find(l => String(l.id) === form.location_id)?.name || ''
+    ? [locations.find(l => String(l.id) === newLoc.parent)?.path_label, newLoc.name].filter(Boolean).join(' ')
+    : locations.find(l => String(l.id) === form.location_id)?.path_label || ''
   const isGrocery = /grocer|food|produce|cleaning|laundry/i.test(selectedCatName) || /laundry/i.test(selectedLocName)
   const tracking = isGrocery || form.track_stock
   // Expiration only makes sense for edibles — food-ish category or kitchen-ish location
@@ -58,7 +59,7 @@ export default function ItemModal({ item, categories, locations, onClose, onSave
 
   async function save() {
     if (!form.name.trim()) { toast.error('Give the item a name'); return }
-    if (form.location_id === NEW && !newLoc.name.trim()) { toast.error('Name the new room'); return }
+    if (form.location_id === NEW && !newLoc.name.trim()) { toast.error('Name the new location'); return }
     if (form.category_id === NEW && !newCat.trim()) { toast.error('Name the new category'); return }
     if (open.mode === 'count' && (!open.unit.trim() || open.count === '')) {
       toast.error('Say how many are left and what they are, like 1 bagel'); return
@@ -67,7 +68,7 @@ export default function ItemModal({ item, categories, locations, onClose, onSave
     try {
       let locationId = form.location_id
       if (locationId === NEW) {
-        const loc = await createLocation({ name: newLoc.name.trim(), sublocation: newLoc.sublocation.trim() || undefined })
+        const loc = await createLocation({ name: newLoc.name.trim(), parent_id: newLoc.parent ? Number(newLoc.parent) : null })
         locationId = String(loc.id)
       }
       let categoryId = form.category_id
@@ -128,7 +129,7 @@ export default function ItemModal({ item, categories, locations, onClose, onSave
             <Select value={form.location_id} onChange={e => set('location_id', e.target.value)}>
               <option value="">No location</option>
               {locations.map(l => (
-                <option key={l.id} value={l.id}>{l.name}{l.sublocation ? ` / ${l.sublocation}` : ''}</option>
+                <option key={l.id} value={l.id}>{locationOptionLabel(l)}</option>
               ))}
               <option value={NEW}>New location…</option>
             </Select>
@@ -143,10 +144,16 @@ export default function ItemModal({ item, categories, locations, onClose, onSave
         </div>
         {form.location_id === NEW && (
           <div className="grid grid-cols-2 gap-3">
-            <Field label="New room"><Input autoFocus placeholder="Kitchen" value={newLoc.name}
-              onChange={e => setNewLoc(v => ({ ...v, name: e.target.value }))} /></Field>
-            <Field label="Spot in the room"><Input placeholder="Optional" value={newLoc.sublocation}
-              onChange={e => setNewLoc(v => ({ ...v, sublocation: e.target.value }))} /></Field>
+            <Field label="Inside">
+              <Select value={newLoc.parent} onChange={e => setNewLoc(v => ({ ...v, parent: e.target.value }))}>
+                <option value="">Nothing: it's a new room</option>
+                {locations.map(l => <option key={l.id} value={l.id}>{locationOptionLabel(l)}</option>)}
+              </Select>
+            </Field>
+            <Field label={newLoc.parent ? 'New spot' : 'New room'}>
+              <Input autoFocus placeholder={newLoc.parent ? 'Third shelf up' : 'Office'} value={newLoc.name}
+                onChange={e => setNewLoc(v => ({ ...v, name: e.target.value }))} />
+            </Field>
           </div>
         )}
         {form.category_id === NEW && (

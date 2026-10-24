@@ -8,13 +8,17 @@ class Location(Base):
     __tablename__ = "locations"
 
     id = Column(Integer, primary_key=True)
-    name = Column(String(100), nullable=False)          # e.g. "Kitchen"
-    sublocation = Column(String(100), nullable=True)    # e.g. "Pantry Shelf 2"
+    name = Column(String(100), nullable=False)          # this level only: "Office", "Bookshelf", "Third shelf up"
+    # Locations nest to any depth: Office › Bookshelf › Right side › Third shelf up.
+    # A location with no parent is a room.
+    parent_id = Column(Integer, ForeignKey("locations.id"), nullable=True)
+    sublocation = Column(String(100), nullable=True)    # legacy flat "spot" — folded into the tree on upgrade
     icon = Column(String(50), nullable=True)            # emoji shown on the Locations page
     description = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     items = relationship("Item", back_populates="location")
+    parent = relationship("Location", remote_side=[id], backref="children")
 
 
 class Category(Base):

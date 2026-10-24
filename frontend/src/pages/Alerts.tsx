@@ -10,7 +10,7 @@ const fmtDay = (iso: string) => {
   const [y, m, d] = iso.slice(0, 10).split('-').map(Number)
   return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
-const where = (i: Item) => i.location ? i.location.name + (i.location.sublocation ? ` / ${i.location.sublocation}` : '') : 'No location'
+const where = (i: Item) => i.location?.name ?? 'No location'   // the full path: Kitchen › Fridge
 
 const itemCell = (i: Item) => (
   <span className="flex items-center gap-2.5">
