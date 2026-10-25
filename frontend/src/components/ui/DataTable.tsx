@@ -1,4 +1,4 @@
-import { Key, ReactNode, useMemo, useState } from 'react'
+import { Key, ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowDown, ArrowUp, ChevronsUpDown, MoreHorizontal } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { IconButton } from './Button'
@@ -42,6 +42,9 @@ export interface DataTableProps<T> {
   maxHeight?: string
   /** Accessible table caption */
   caption?: string
+  /** Turn on row checkboxes: the selected row keys, and a setter */
+  selected?: Set<Key>
+  onSelectedChange?: (keys: Set<Key>) => void
   className?: string
 }
 
@@ -49,8 +52,9 @@ const hide = { lg: 'hidden lg:table-cell', xl: 'hidden xl:table-cell' }
 
 export function DataTable<T>({
   columns, rows, rowKey, onRowClick, rowActions, initialSort, sort: sortProp, onSortChange,
-  loading, empty, mobileRow, maxHeight, caption, className,
+  loading, empty, mobileRow, maxHeight, caption, className, selected, onSelectedChange,
 }: DataTableProps<T>) {
+  const selectable = Boolean(selected && onSelectedChange)
   const [sortState, setSortState] = useState<SortState | undefined>(initialSort)
   const sort = sortProp ?? sortState
 
@@ -75,6 +79,23 @@ export function DataTable<T>({
     onSortChange?.(next)
   }
 
+  const keys = sorted.map(rowKey)
+  const selectedHere = selectable ? keys.filter(k => selected!.has(k)).length : 0
+  const allSelected = selectable && keys.length > 0 && selectedHere === keys.length
+
+  function toggleRow(key: Key) {
+    const next = new Set(selected)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    onSelectedChange!(next)
+  }
+  function toggleAll() {
+    const next = new Set(selected)
+    if (allSelected) keys.forEach(k => next.delete(k))
+    else keys.forEach(k => next.add(k))
+    onSelectedChange!(next)
+  }
+
   if (!loading && rows.length === 0 && empty) return <>{empty}</>
 
   const actionsMenu = (row: T) => rowActions && (
@@ -93,6 +114,12 @@ export function DataTable<T>({
           {caption && <caption className="sr-only">{caption}</caption>}
           <thead>
             <tr>
+              {selectable && (
+                <th scope="col" className="sticky top-0 z-10 w-10 border-b border-line bg-surface pl-4">
+                  <Checkbox checked={allSelected} indeterminate={selectedHere > 0 && !allSelected}
+                    onChange={toggleAll} label={allSelected ? 'Clear selection' : 'Select all'} />
+                </th>
+              )}
               {columns.map(c => {
                 const active = sort?.key === c.key
                 return (
@@ -129,6 +156,7 @@ export function DataTable<T>({
             {loading
               ? Array.from({ length: 5 }, (_, i) => (
                   <tr key={i}>
+                    {selectable && <td className="border-b border-line" />}
                     {columns.map(c => (
                       <td key={c.key} className={cn('h-11 border-b border-line px-3 first:pl-4 last:pr-4', c.hideBelow && hide[c.hideBelow])}>
                         <Skeleton className="w-3/4" />
@@ -141,13 +169,20 @@ export function DataTable<T>({
                   <tr
                     key={rowKey(row)}
                     onClick={onRowClick ? () => onRowClick(row) : undefined}
-                    className={cn('group', onRowClick && 'cursor-pointer', 'hover:bg-ink/[0.025]')}
+                    className={cn('group', onRowClick && 'cursor-pointer',
+                      selectable && selected!.has(rowKey(row)) ? 'bg-action/[0.06]' : 'hover:bg-ink/[0.025]')}
                   >
+                    {selectable && (
+                      <td className="w-10 border-b border-line pl-4 group-last:border-b-0" onClick={e => e.stopPropagation()}>
+                        <Checkbox checked={selected!.has(rowKey(row))} onChange={() => toggleRow(rowKey(row))} label="Select row" />
+                      </td>
+                    )}
                     {columns.map((c, ci) => (
                       <td
                         key={c.key}
                         className={cn(
-                          'h-11 border-b border-line px-3 align-middle text-ink first:pl-4 last:pr-4 group-last:border-b-0',
+                          'h-11 border-b border-line px-3 align-middle text-ink last:pr-4 group-last:border-b-0',
+                          !selectable && 'first:pl-4',
                           c.numeric && 'text-right tnum',
                           c.hideBelow && hide[c.hideBelow],
                           c.className,
@@ -177,13 +212,23 @@ export function DataTable<T>({
       </div>
 
       {/* Phones: list */}
+      {selectable && keys.length > 0 && (
+        <div className="flex items-center gap-3 border-b border-line px-4 py-2 md:hidden">
+          <Checkbox checked={allSelected} indeterminate={selectedHere > 0 && !allSelected} onChange={toggleAll}
+            label={allSelected ? 'Clear selection' : 'Select all'} />
+          <span className="text-ui text-muted">{allSelected ? 'Clear selection' : 'Select all'}</span>
+        </div>
+      )}
       <ul className="divide-y divide-line md:hidden">
         {loading
           ? Array.from({ length: 4 }, (_, i) => (
               <li key={i} className="space-y-2 px-4 py-3"><Skeleton className="w-1/2" /><Skeleton className="w-3/4" /></li>
             ))
           : sorted.map(row => (
-              <li key={rowKey(row)} className="flex items-start gap-2 px-4 py-3">
+              <li key={rowKey(row)} className={cn('flex items-start gap-2 px-4 py-3', selectable && selected!.has(rowKey(row)) && 'bg-action/[0.06]')}>
+                {selectable && (
+                  <div className="pt-0.5"><Checkbox checked={selected!.has(rowKey(row))} onChange={() => toggleRow(rowKey(row))} label="Select" /></div>
+                )}
                 <div
                   className={cn('min-w-0 flex-1', onRowClick && 'cursor-pointer')}
                   role={onRowClick ? 'button' : undefined}
@@ -217,5 +262,18 @@ function DefaultMobileRow<T>({ row, columns }: { row: T; columns: Column<T>[] })
         </dl>
       )}
     </>
+  )
+}
+
+/** Table checkbox with a real indeterminate state for 'some selected' */
+function Checkbox({ checked, indeterminate = false, onChange, label }: {
+  checked: boolean; indeterminate?: boolean; onChange: () => void; label: string
+}) {
+  const ref = useRef<HTMLInputElement>(null)
+  useEffect(() => { if (ref.current) ref.current.indeterminate = indeterminate }, [indeterminate])
+  return (
+    <input ref={ref} type="checkbox" checked={checked} onChange={onChange} aria-label={label}
+      onClick={e => e.stopPropagation()}
+      className="h-4 w-4 cursor-pointer align-middle accent-[rgb(var(--action))]" />
   )
 }

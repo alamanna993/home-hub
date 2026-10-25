@@ -1,10 +1,13 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { Key, useEffect, useState, useCallback, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { AlertTriangle, ChevronRight, Edit2, Inbox, MapPin, Minus, PackageCheck, Plus, Search, Trash2 } from 'lucide-react'
-import { getItems, getCategories, getLocations, deleteItem, useItem as consumeItem, errorText, Item, Category, Location } from '../lib/api'
+import { AlertTriangle, ChevronRight, Edit2, FolderInput, Inbox, MapPin, Minus, PackageCheck, Plus, Search, Trash2, X } from 'lucide-react'
+import {
+  getItems, getCategories, getLocations, deleteItem, bulkDeleteItems, bulkMoveItems, useItem as consumeItem, errorText,
+  locationOptionLabel, Item, Category, Location,
+} from '../lib/api'
 import ItemModal from '../components/ItemModal'
 import {
-  Badge, Button, ConfirmDialog, DataTable, EmptyState, Input, Page, PageHeader, Panel, Select, Skeleton, type Column,
+  Badge, Button, ConfirmDialog, DataTable, Dialog, EmptyState, Field, Input, Page, PageHeader, Panel, Select, Skeleton, type Column,
 } from '../components/ui'
 import { cn } from '../lib/utils'
 import toast from 'react-hot-toast'
@@ -91,6 +94,12 @@ export default function Inventory() {
   const [catFilter, setCatFilter] = useState('')
   const [editItem, setEditItem] = useState<Item | null | undefined>(undefined)
   const [deleting, setDeleting] = useState<Item | null>(null)
+  // Bulk selection: item ids checked in the table
+  const [selected, setSelected] = useState<Set<Key>>(new Set())
+  const [bulkDeleting, setBulkDeleting] = useState(false)
+  const [moving, setMoving] = useState(false)
+  const [moveTo, setMoveTo] = useState('')
+  const [bulkBusy, setBulkBusy] = useState(false)
   const [loading, setLoading] = useState(true)
   const [searchParams, setSearchParams] = useSearchParams()
   // ?loc=<id> opens a location (and everything inside it); ?loc=none shows unfiled items.
@@ -164,6 +173,40 @@ export default function Inventory() {
     return out
   }, [current, locations])
   const roomIcon = (ancestors[0] ?? current)?.icon || '📍'
+
+  useEffect(() => {
+    setSelected(sel => {
+      const present = new Set(items.map(i => i.id as Key))
+      const next = new Set([...sel].filter(k => present.has(k)))
+      return next.size === sel.size ? sel : next
+    })
+  }, [items])
+  const selectedItems = items.filter(i => selected.has(i.id))
+
+  async function confirmBulkDelete() {
+    try {
+      const { deleted } = await bulkDeleteItems(selectedItems.map(i => i.id))
+      toast.success(`Deleted ${deleted} item${deleted === 1 ? '' : 's'}`)
+      setSelected(new Set())
+      load()
+    } catch (e) {
+      toast.error(errorText(e, "Couldn't delete those items"))
+    }
+  }
+
+  async function bulkMove() {
+    setBulkBusy(true)
+    try {
+      const { moved, location } = await bulkMoveItems(selectedItems.map(i => i.id), moveTo ? Number(moveTo) : null)
+      toast.success(`Moved ${moved} item${moved === 1 ? '' : 's'} to ${location}`)
+      setMoving(false); setSelected(new Set())
+      load()
+    } catch (e) {
+      toast.error(errorText(e, "Couldn't move those items"))
+    } finally {
+      setBulkBusy(false)
+    }
+  }
 
   const sortedItems = useMemo(() => {
     const cmp = (SORTS[sort] || SORTS.name).cmp
@@ -315,7 +358,18 @@ export default function Inventory() {
         )
       ) : (
         <Panel padded={false}>
+          {selected.size > 0 && (
+            <div className="sticky top-0 z-20 flex flex-wrap items-center gap-2 rounded-t-panel border-b border-line bg-action/[0.06] px-4 py-2" role="region" aria-label="Bulk actions">
+              <span className="text-sm font-medium text-ink tnum">{selected.size} selected</span>
+              <Button size="sm" variant="ghost" icon={X} onClick={() => setSelected(new Set())}>Clear</Button>
+              <span className="ml-auto flex items-center gap-2">
+                <Button size="sm" icon={FolderInput} onClick={() => { setMoveTo(current ? String(current.id) : ''); setMoving(true) }}>Move to…</Button>
+                <Button size="sm" variant="danger" icon={Trash2} onClick={() => setBulkDeleting(true)}>Delete</Button>
+              </span>
+            </div>
+          )}
           <DataTable columns={columns} rows={sortedItems} rowKey={i => i.id} caption={title}
+            selected={selected} onSelectedChange={setSelected}
             onRowClick={i => setEditItem(i)}
             rowActions={i => [
               { label: 'Edit', icon: Edit2, onSelect: () => setEditItem(i) },
@@ -346,6 +400,25 @@ export default function Inventory() {
         <ItemModal item={editItem} categories={categories} locations={locations}
           onClose={() => setEditItem(undefined)} onSaved={load} />
       )}
+      <ConfirmDialog open={bulkDeleting} onClose={() => setBulkDeleting(false)} onConfirm={confirmBulkDelete}
+        title={`Delete ${selectedItems.length} item${selectedItems.length === 1 ? '' : 's'}?`}
+        confirmLabel={`Delete ${selectedItems.length} item${selectedItems.length === 1 ? '' : 's'}`}
+        description={`${selectedItems.slice(0, 5).map(i => i.name).join(', ')}${selectedItems.length > 5 ? `, and ${selectedItems.length - 5} more` : ''}. They're removed for good. To keep something on the list for restocking, set its quantity to 0 instead.`} />
+
+      <Dialog open={moving} onClose={() => setMoving(false)} size="sm"
+        title={`Move ${selectedItems.length} item${selectedItems.length === 1 ? '' : 's'}`}
+        footer={<>
+          <Button variant="ghost" onClick={() => setMoving(false)}>Cancel</Button>
+          <Button variant="primary" loading={bulkBusy} onClick={bulkMove}>Move</Button>
+        </>}>
+        <Field label="Move to">
+          <Select autoFocus value={moveTo} onChange={e => setMoveTo(e.target.value)}>
+            <option value="">No location</option>
+            {locations.map(l => <option key={l.id} value={l.id}>{locationOptionLabel(l)}</option>)}
+          </Select>
+        </Field>
+      </Dialog>
+
       <ConfirmDialog open={!!deleting} onClose={() => setDeleting(null)} onConfirm={confirmDelete}
         title={`Delete ${deleting?.name}?`} confirmLabel="Delete item"
         description="It's removed from the inventory for good. To keep it on the list for restocking, set the quantity to 0 instead." />

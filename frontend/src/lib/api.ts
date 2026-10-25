@@ -76,6 +76,13 @@ export const deleteLocation = (id: number) =>
 /** Native-select label for a location: indented under its parent */
 export const locationOptionLabel = (l: Location) => '\u00A0\u00A0\u00A0'.repeat(l.depth) + (l.depth ? '\u2514 ' : '') + l.name
 
+export const bulkDeleteItems = (ids: number[]) =>
+  api.post<{ ok: boolean; deleted: number }>('/items/bulk-delete', { ids }).then(r => r.data)
+
+/** location_id null = no location */
+export const bulkMoveItems = (ids: number[], location_id: number | null) =>
+  api.post<{ ok: boolean; moved: number; location: string }>('/items/bulk-move', { ids, location_id }).then(r => r.data)
+
 export const deleteItem = (id: number) =>
   api.delete(`/items/${id}`).then(r => r.data)
 

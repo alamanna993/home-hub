@@ -358,6 +358,44 @@ def update_item(item_id: int, data: ItemUpdate, source: str = "dashboard", db: S
     return item_to_dict(item)
 
 
+class BulkIds(BaseModel):
+    ids: list[int]
+
+
+class BulkMove(BulkIds):
+    location_id: Optional[int] = None   # none = no location
+
+
+@router.post("/bulk-delete")
+def bulk_delete_items(data: BulkIds, source: str = "dashboard", db: Session = Depends(get_db)):
+    """Delete several items for good (one audit entry per item)."""
+    items = db.query(Item).filter(Item.id.in_(data.ids)).all()
+    for item in items:
+        db.add(AuditLog(action="deleted", item_name=item.name, changed_by=source, details="item removed (bulk)"))
+        db.delete(item)
+    db.commit()
+    return {"ok": True, "deleted": len(items)}
+
+
+@router.post("/bulk-move")
+def bulk_move_items(data: BulkMove, source: str = "dashboard", db: Session = Depends(get_db)):
+    """Put several items in one location (or take them out of any location)."""
+    from location_tree import path_str
+    target = None
+    if data.location_id is not None:
+        target = db.query(Location).filter(Location.id == data.location_id).first()
+        if not target:
+            raise HTTPException(status_code=404, detail="That location doesn't exist")
+    items = db.query(Item).filter(Item.id.in_(data.ids)).all()
+    where = path_str(target) if target else "no location"
+    for item in items:
+        item.location_id = data.location_id
+        item.updated_at = datetime.utcnow()
+        db.add(AuditLog(action="updated", item_name=item.name, changed_by=source, details=f"moved to {where} (bulk)"))
+    db.commit()
+    return {"ok": True, "moved": len(items), "location": where}
+
+
 class UseRequest(BaseModel):
     what: str = "one"   # one = a single unit from the open package; opened = finished the open package
 
