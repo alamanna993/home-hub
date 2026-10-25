@@ -635,8 +635,11 @@ async def handle_action(parsed: dict, req: ChatRequest, db: Session) -> dict:
         if cat_name:
             query = query.join(Category).filter(Category.name.ilike(f"%{cat_name}%"))
         if loc_name:
-            query = query.join(Location).filter(Location.name.ilike(f"%{loc_name}%"))
-        items = query.limit(20).all()
+            # The location and every spot inside it (Kitchen covers Kitchen › Fridge › Door)
+            from location_tree import descendant_ids
+            loc = resolve_path(db, split_path(loc_name) + split_path(parsed.get("sublocation")), create=False)
+            query = query.filter(Item.location_id.in_(descendant_ids(db, loc.id) if loc else set()))
+        items = query.limit(40).all()
         if items:
             lines = [f"• {i.name} ({i.quantity or '?'} {i.unit or ''})" for i in items]
             reply = "\n".join(lines)
