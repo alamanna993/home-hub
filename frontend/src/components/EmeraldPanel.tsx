@@ -109,14 +109,18 @@ function Avatar() {
   )
 }
 
-function OpenRecipe({ recipe }: { recipe: { id: number; title: string } }) {
+function OpenRecipes({ recipes }: { recipes: { id: number; title: string }[] }) {
   const navigate = useNavigate()
   const { closePanel } = useEmeraldChat()
   return (
-    <Button size="sm" variant="secondary" icon={BookOpen} className="mt-2.5"
-      onClick={() => { closePanel(); navigate(`/recipes/${recipe.id}`) }}>
-      Open recipe
-    </Button>
+    <div className="mt-2.5 flex flex-wrap gap-1.5">
+      {recipes.map(r => (
+        <Button key={r.id} size="sm" variant="secondary" icon={BookOpen}
+          onClick={() => { closePanel(); navigate(`/recipes/${r.id}`) }}>
+          {recipes.length === 1 ? 'Open recipe' : `Open ${r.title}`}
+        </Button>
+      ))}
+    </div>
   )
 }
 
@@ -159,7 +163,7 @@ function MessageRow({ m, onAnswer, disabled }: { m: EmeraldMessage; onAnswer: (i
           </div>
         )}
 
-        {m.recipe && <OpenRecipe recipe={m.recipe} />}
+        {m.recipes && m.recipes.length > 0 && <OpenRecipes recipes={m.recipes} />}
 
         {by && <p className="mt-1.5 text-xs text-muted">{by}</p>}
       </div>

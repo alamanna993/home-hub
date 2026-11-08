@@ -538,10 +538,73 @@ def title_from_header(header: str) -> str | None:
                 return None  # "save this recipe for me:"
             return title[:1].upper() + title[1:] if len(title) <= 80 else None
     m = re.match(r"^(.*?)\s*\brecipes?\b", HEADER_LEAD_RE.sub("", line), re.I)
-    if m and m.group(1).strip(" :"):
+    # "add this to my recipes" names a destination, not the dish
+    if m and m.group(1).strip(" :") and not re.match(r"(?:to|in|into|on|for|as|from|with|these|those|all)\b",
+                                                     m.group(1).strip(), re.I):
         title = m.group(1).strip(" :")
         return title[:1].upper() + title[1:]
     return None
+
+
+# "RECIPE 1: False Light Fog" starts a new recipe when several are pasted together
+RECIPE_MARKER_RE = re.compile(r"^\W*recipe\s*#?\s*\d{1,2}\s*[:.)\-–—]\s*(.*)$", re.I)
+# Lines that talk to Emerald rather than describe the food ("Save as an individual
+# recipe. Do not add ingredients to my shopping list") — never part of the recipe.
+COMMAND_RE = re.compile(r"^(?:please\s+|can you\s+|could you\s+)*(?:add|save|store|keep|create|make|file|put|treat|"
+                        r"new|here'?s|here is|do not|don'?t)(?=\s)", re.I)  # "Make-Ahead Oats:" is a title
+EMERALD_NOTE_RE = re.compile(r"\b(recipes?|shopping list|inventory|emerald|homehub)\b", re.I)
+
+
+def is_note_to_emerald(line: str) -> bool:
+    return bool(COMMAND_RE.match(line) and EMERALD_NOTE_RE.search(line))
+
+
+def _tidy_caps(text: str) -> str:
+    """'FALSE LIGHT FOG (HOT)' -> 'False Light Fog (Hot)'; mixed case is left as typed."""
+    if sum(c.isalpha() for c in text) < 4 or text != text.upper():
+        return text
+    return re.sub(r"[A-Za-z][A-Za-z']*", lambda m: m.group(0)[0].upper() + m.group(0)[1:].lower(), text)
+
+
+def split_chat_message(message: str) -> tuple[str | None, list[str]]:
+    """Split a recipe message from chat into (command header, one text block per recipe).
+    The header ("add these recipes:") and notes to Emerald are taken out of the recipe text."""
+    lines = [l.strip() for l in message.splitlines() if l.strip()]
+    header = None
+    if lines and COMMAND_RE.match(lines[0]) and not RECIPE_MARKER_RE.match(lines[0]) \
+            and (re.search(r"\brecipes?\b", lines[0], re.I) or lines[0].endswith(":")):
+        header = lines.pop(0)
+    if header and not lines:
+        return header, [header.partition(":")[2].strip()]  # "save this recipe: pancakes — 2 cups flour…"
+    lines = [l for l in lines if not is_note_to_emerald(l)]
+
+    starts = [i for i, l in enumerate(lines) if RECIPE_MARKER_RE.match(l)]
+    if starts:
+        chunks = []
+        for n, i in enumerate(starts):
+            block = lines[i:starts[n + 1] if n + 1 < len(starts) else len(lines)]
+            title = RECIPE_MARKER_RE.match(block[0]).group(1).strip()
+            block = ([title] if title else []) + block[1:]
+            if block:
+                chunks.append(block)
+        # Anything before "RECIPE 1:" belongs to no recipe unless it's a whole recipe itself
+        before = lines[:starts[0]]
+        if any(_section_of(l) == "ingredients" for l in before):
+            chunks.insert(0, before)
+        return header, ["\n".join(c) for c in chunks]
+
+    # No markers: back-to-back recipes each with their own Ingredients heading.
+    # A new recipe starts at the title line above each later Ingredients heading.
+    heads = [i for i, l in enumerate(lines) if _section_of(l) == "ingredients"]
+    cuts = [0]
+    for k in heads[1:]:
+        b = k - 1
+        while b - 1 > cuts[-1] and FIELD_RE.match(lines[b]):
+            b -= 1  # step back over "Serves 4" / "Prep: 10 min" to the title
+        if b > cuts[-1]:
+            cuts.append(b)
+    cuts.append(len(lines))
+    return header, ["\n".join(lines[a:b]) for a, b in zip(cuts, cuts[1:])]
 
 
 def parse_recipe_text(text: str, header: str | None = None) -> dict | None:
@@ -574,7 +637,7 @@ def parse_recipe_text(text: str, header: str | None = None) -> dict | None:
                 continue
             intro.append(line)
         else:
-            cleaned = LINE_BULLET_RE.sub("", line).strip() if not is_heading(line) else line
+            cleaned = LINE_BULLET_RE.sub("", line).strip() if not is_heading(line) else _tidy_caps(line)
             if cleaned:
                 buckets[section].append(cleaned)
 
@@ -583,7 +646,7 @@ def parse_recipe_text(text: str, header: str | None = None) -> dict | None:
     if not buckets["ingredients"]:
         return None
     return {
-        "title": (title or "New recipe")[:200], "description": " ".join(intro) or None, "servings": servings,
+        "title": _tidy_caps(title or "New recipe")[:200], "description": " ".join(intro) or None, "servings": servings,
         "prep_minutes": prep, "cook_minutes": cook,
         "ingredients": buckets["ingredients"], "steps": buckets["steps"], "tags": [], "cuisine": None,
         "source_url": None, "image_url": None, "notes": "\n".join(buckets["notes"]) or None,

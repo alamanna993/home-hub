@@ -99,7 +99,8 @@ export interface ChatPending {
 }
 export interface ChatResponse {
   reply: string; action: string; brain?: ChatBrain | null; pending?: ChatPending | null
-  /** Set when Emerald saved a recipe from the message */
+  /** Recipes Emerald saved from the message (`recipe` is set when there's exactly one) */
+  recipes?: { id: number; title: string }[] | null
   recipe?: { id: number; title: string } | null
 }
 

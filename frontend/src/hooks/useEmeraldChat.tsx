@@ -10,8 +10,8 @@ export interface EmeraldMessage {
   brain?: ChatBrain | null
   /** Open location question with tap-to-answer options */
   pending?: ChatPending | null
-  /** A recipe Emerald saved from this exchange, for an Open recipe button */
-  recipe?: { id: number; title: string } | null
+  /** Recipes Emerald saved from this exchange, for Open recipe buttons */
+  recipes?: { id: number; title: string }[]
   /** The option the user picked for `pending`, once answered */
   answered?: string
   error?: boolean
@@ -61,7 +61,7 @@ export function EmeraldChatProvider({ children }: { children: ReactNode }) {
     setLoading(true)
     try {
       const r = await call()
-      push({ role: 'emerald', text: r.reply, brain: r.brain, pending: r.pending, recipe: r.recipe })
+      push({ role: 'emerald', text: r.reply, brain: r.brain, pending: r.pending, recipes: r.recipes ?? (r.recipe ? [r.recipe] : undefined) })
     } catch {
       push({ role: 'emerald', text: "I couldn't reach HomeHub's server. Check that the backend is running, then try again.", error: true })
     } finally {

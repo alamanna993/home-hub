@@ -212,38 +212,54 @@ def is_recipe_paste(message: str) -> bool:
 
 
 async def save_recipe_from_chat(req: "ChatRequest", db: Session) -> dict:
+    """Save every recipe in the message (one, or several pasted as "RECIPE 1: …")."""
     from routers import recipes as rx
-    lines = [l for l in req.message.splitlines() if l.strip()]
-    header = lines[0] if RECIPE_WORD_RE.search(lines[0]) else None
-    body = "\n".join(lines[1:]) if header else req.message
-    if header and len(lines) == 1:
-        body = header.partition(":")[2]
+    header, chunks = rx.split_chat_message(req.message)
+    single = len(chunks) == 1
+    saved, unreadable = [], []
+    for chunk in chunks:
+        draft = rx.parse_recipe_text(chunk, header if single else None)
+        if not draft:
+            # No Ingredients heading to split on — have Emerald structure it
+            try:
+                draft = await rx.draft_from_text("\n".join(filter(None, [header if single else None, chunk])), db)
+            except Exception as e:
+                unreadable.append((chunk.splitlines()[0][:60] if chunk else "", getattr(e, "detail", None) or str(e)))
+                continue
+        wanted = draft["title"]
+        draft["title"] = rx.unique_title(db, wanted)
+        recipe = rx.create_from_draft(draft, db, req.source)
+        saved.append((recipe, wanted, draft.get("untitled")))
 
-    draft = rx.parse_recipe_text(body, header)
-    if not draft:
-        # No Ingredients heading to split on — have Emerald structure it
-        try:
-            draft = await rx.draft_from_text(req.message, db)
-        except Exception as e:
-            detail = getattr(e, "detail", None) or str(e)
-            return {"reply": ("🤔 I couldn't read that as a recipe, so I didn't save anything. "
-                              "Paste it with an **Ingredients** heading and a **Steps** heading, "
-                              f"or add it under Recipes → New. ({detail})"),
-                    "action": "recipe_unreadable"}
+    def counts(r):
+        n_ing = sum(1 for l in r.ingredients or [] if not rx.is_heading(l))
+        n_steps = len(r.steps or [])
+        return f"{n_ing} ingredient{'s' * (n_ing != 1)}, {n_steps} step{'s' * (n_steps != 1)}"
 
-    wanted = draft["title"]
-    draft["title"] = rx.unique_title(db, wanted)
-    recipe = rx.create_from_draft(draft, db, req.source)
+    if not saved:
+        detail = f" ({unreadable[0][1]})" if unreadable else ""
+        return {"reply": ("🤔 I couldn't read that as a recipe, so I didn't save anything. "
+                          "Paste it with an **Ingredients** heading and a **Steps** heading, "
+                          f"or add it under Recipes → New.{detail}"),
+                "action": "recipe_unreadable"}
 
-    n_ing = sum(1 for l in recipe.ingredients or [] if not rx.is_heading(l))
-    n_steps = len(recipe.steps or [])
-    reply = (f"✅ Saved **{recipe.title}** to Recipes: {n_ing} ingredient{'s' * (n_ing != 1)}, "
-             f"{n_steps} step{'s' * (n_steps != 1)}.")
-    if recipe.title != wanted:
-        reply += f" You already had a recipe called {wanted}, so I saved this one as **{recipe.title}**."
-    elif draft.get("untitled"):
-        reply += " I couldn't tell its name, so rename it in Recipes."
-    return {"reply": reply, "action": "save_recipe", "recipe": {"id": recipe.id, "title": recipe.title}}
+    if len(saved) == 1 and not unreadable:
+        recipe, wanted, untitled = saved[0]
+        reply = f"✅ Saved **{recipe.title}** to Recipes: {counts(recipe)}."
+    else:
+        reply = f"✅ Saved {len(saved)} recipe{'s' * (len(saved) != 1)} to Recipes:\n" + \
+                "\n".join(f"• **{r.title}**: {counts(r)}" for r, _, _ in saved)
+    for recipe, wanted, untitled in saved:
+        if recipe.title != wanted:
+            reply += f"\nYou already had a recipe called {wanted}, so I saved this one as **{recipe.title}**."
+        elif untitled:
+            reply += f"\nI couldn't tell one recipe's name, so it's saved as **{recipe.title}**; rename it in Recipes."
+    for first_line, _ in unreadable:
+        reply += f"\n⚠️ I couldn't read the recipe starting \"{first_line}\", so it wasn't saved."
+
+    recipes = [{"id": r.id, "title": r.title} for r, _, _ in saved]
+    return {"reply": reply, "action": "save_recipe", "recipes": recipes,
+            "recipe": recipes[0] if len(recipes) == 1 else None}
 
 
 WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
