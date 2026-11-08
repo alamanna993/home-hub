@@ -102,6 +102,7 @@ Examples (each -> the "actions" array):
 - "how are you?" / "what's on the calendar this week?" -> [{{"action": "unknown", ...}}]
 - "cancel the dentist appointment" / "delete the water plants chore" / "reassign dishes to Sam" -> [{{"action": "unknown", ...}}]
 - "add a location called Attic" / "rename the garage to Workshop" / "add Sam to the family" -> [{{"action": "unknown", ...}}]
+- "add a recipe for pancakes" followed by ingredient lines -> [{{"action": "unknown", ...}}] (a recipe is never inventory — don't add its ingredients as items)
 - "save this recipe: pancakes — 2 cups flour, 2 eggs…" / "what recipes use chicken?" / "save https://example.com/lasagna" / "put the lasagna recipe on thursday" -> [{{"action": "unknown", ...}}]
 """
 

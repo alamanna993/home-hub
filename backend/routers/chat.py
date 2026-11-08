@@ -154,8 +154,8 @@ def parse_bulk_list(message: str) -> list[dict] | None:
     if len(lines) < 3:
         return None
     header, rows = lines[0], lines[1:]
-    if not BULK_INTENT_RE.search(header):
-        return None
+    if not BULK_INTENT_RE.search(header) or RECIPE_WORD_RE.search(header):
+        return None  # "add a recipe:" + lines is one recipe, not a list of items
     # Only clearly list-shaped messages: "add these to the office:" — a plain
     # multi-line sentence with an add-verb in it must still go to the LLM.
     if not (header.rstrip().endswith(":") or re.search(r"\b(below|following|these|this list)\b", header, re.I)):
@@ -185,6 +185,65 @@ def parse_bulk_list(message: str) -> list[dict] | None:
         for a in actions:
             a["category"] = "Books / Media"
     return actions
+
+
+# ---------------------------------------------------------------------------
+# A recipe pasted into chat is saved as one recipe. It must never reach the
+# bulk parser or the action parser, which would add every line to inventory.
+# ---------------------------------------------------------------------------
+RECIPE_WORD_RE = re.compile(r"\brecipes?\b", re.I)
+RECIPE_INTENT_RE = re.compile(r"\b(add|adding|save|saving|store|keep|new|create|here'?s|here is)\b", re.I)
+INGREDIENTS_LINE_RE = re.compile(r"^\W*ingredients?\W*$", re.I)
+URL_RE = re.compile(r"https?://", re.I)
+
+
+def is_recipe_paste(message: str) -> bool:
+    lines = [l.strip() for l in message.splitlines() if l.strip()]
+    if not lines or URL_RE.search(message):
+        return False  # links go to the agent's import_recipe_url
+    header = lines[0]
+    if RECIPE_WORD_RE.search(header) and RECIPE_INTENT_RE.search(header):
+        if len(lines) >= 3:
+            return True
+        body = " ".join(lines[1:]) if len(lines) == 2 else header.partition(":")[2]
+        return len(body.strip()) >= 20  # "save this recipe: pancakes — 2 cups flour, 2 eggs…"
+    # No "recipe" in the header, but it's clearly laid out as one
+    return len(lines) >= 4 and any(INGREDIENTS_LINE_RE.match(l) for l in lines)
+
+
+async def save_recipe_from_chat(req: "ChatRequest", db: Session) -> dict:
+    from routers import recipes as rx
+    lines = [l for l in req.message.splitlines() if l.strip()]
+    header = lines[0] if RECIPE_WORD_RE.search(lines[0]) else None
+    body = "\n".join(lines[1:]) if header else req.message
+    if header and len(lines) == 1:
+        body = header.partition(":")[2]
+
+    draft = rx.parse_recipe_text(body, header)
+    if not draft:
+        # No Ingredients heading to split on — have Emerald structure it
+        try:
+            draft = await rx.draft_from_text(req.message, db)
+        except Exception as e:
+            detail = getattr(e, "detail", None) or str(e)
+            return {"reply": ("🤔 I couldn't read that as a recipe, so I didn't save anything. "
+                              "Paste it with an **Ingredients** heading and a **Steps** heading, "
+                              f"or add it under Recipes → New. ({detail})"),
+                    "action": "recipe_unreadable"}
+
+    wanted = draft["title"]
+    draft["title"] = rx.unique_title(db, wanted)
+    recipe = rx.create_from_draft(draft, db, req.source)
+
+    n_ing = sum(1 for l in recipe.ingredients or [] if not rx.is_heading(l))
+    n_steps = len(recipe.steps or [])
+    reply = (f"✅ Saved **{recipe.title}** to Recipes: {n_ing} ingredient{'s' * (n_ing != 1)}, "
+             f"{n_steps} step{'s' * (n_steps != 1)}.")
+    if recipe.title != wanted:
+        reply += f" You already had a recipe called {wanted}, so I saved this one as **{recipe.title}**."
+    elif draft.get("untitled"):
+        reply += " I couldn't tell its name, so rename it in Recipes."
+    return {"reply": reply, "action": "save_recipe", "recipe": {"id": recipe.id, "title": recipe.title}}
 
 
 WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
@@ -755,7 +814,10 @@ async def _chat(req: ChatRequest, db: Session) -> dict:
             return resolved
         PENDING.pop(req.source, None)  # not an answer — drop the question and process normally
 
-    actions = (parse_bulk_list(req.message) or await parse_message(req.message, db))[:MAX_ACTIONS_PER_MESSAGE]
+    if is_recipe_paste(req.message):
+        return await save_recipe_from_chat(req, db)
+
+    actions =(parse_bulk_list(req.message) or await parse_message(req.message, db))[:MAX_ACTIONS_PER_MESSAGE]
 
     if len(actions) == 1:
         parsed = actions[0]

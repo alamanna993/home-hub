@@ -97,7 +97,11 @@ export interface ChatPending {
   id: string; type: 'location' | 'confirm'; question: string; items: string[]; options: string[]
   placements?: { item: string; location: string | null }[]
 }
-export interface ChatResponse { reply: string; action: string; brain?: ChatBrain | null; pending?: ChatPending | null }
+export interface ChatResponse {
+  reply: string; action: string; brain?: ChatBrain | null; pending?: ChatPending | null
+  /** Set when Emerald saved a recipe from the message */
+  recipe?: { id: number; title: string } | null
+}
 
 const CHAT_SOURCE = 'dashboard'
 

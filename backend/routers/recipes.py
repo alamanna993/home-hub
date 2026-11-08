@@ -488,6 +488,131 @@ async def draft_from_text(text: str, db: Session, source_url: str | None = None,
 
 
 # ---------------------------------------------------------------------------
+# Recipes pasted into chat ("add a recipe:" + title, Ingredients, Steps).
+# When the text has section headings we split it ourselves so every line is
+# kept exactly as typed — no model gets the chance to drop or rewrite one.
+# ---------------------------------------------------------------------------
+SECTION_KINDS = {
+    "ingredient": "ingredients", "ingredients": "ingredients",
+    "step": "steps", "steps": "steps", "direction": "steps", "directions": "steps",
+    "instruction": "steps", "instructions": "steps", "method": "steps", "preparation": "steps",
+    "procedure": "steps", "how to make it": "steps", "how to make": "steps", "cooking instructions": "steps",
+    "note": "notes", "notes": "notes", "tip": "notes", "tips": "notes",
+}
+# A number only counts as list numbering when a space follows: "1. Mix" yes, "1.5 cups milk" no
+LINE_BULLET_RE = re.compile(r"^\s*(?:[-•*+·▢□☐]\s*|\d{1,3}[.)]\s+|step\s+\d{1,3}\s*[:.)-]?\s*)", re.I)
+# "Serves 4", "Prep: 15 min", "Cook 30 minutes" — but not a title like "Cookie dough bars"
+# or "Cooking this always…": the word must stand alone, then a colon/dash or a number.
+FIELD_RE = re.compile(r"^(title|name|serves|servings|yield|makes|prep(?:aration)?(?: time)?|cook(?:ing)?(?: time)?)"
+                      r"\b\s*(?:[:\-]\s*|(?=\d))(.+)$", re.I)
+HEADER_TITLE_RES = (
+    re.compile(r"\brecipes?\s+(?:for|called|named)\s+(.+)$", re.I),       # "add a recipe for pancakes"
+    re.compile(r"\brecipes?\s*:\s*(.+)$", re.I),                            # "save this recipe: Pancakes"
+)
+HEADER_LEAD_RE = re.compile(r"^(?:please\s+|can you\s+|could you\s+)*(?:add|save|store|keep|create|make|"
+                            r"here'?s|here is)\s+(?:(?:a|an|the|this|my|our|new)\s+)*", re.I)
+
+
+def _section_of(line: str) -> str | None:
+    word = line.strip().strip("*#_ ").rstrip(":").strip().lower()
+    return SECTION_KINDS.get(word)
+
+
+def _duration(text: str) -> int | None:
+    hours = re.search(r"(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)\b", text, re.I)
+    mins = re.search(r"(\d+)\s*(?:m|min|mins|minute|minutes)\b", text, re.I)
+    total = (float(hours.group(1)) * 60 if hours else 0) + (int(mins.group(1)) if mins else 0)
+    if not total and re.fullmatch(r"\s*\d+\s*", text):
+        total = int(text)
+    return int(total) or None
+
+
+def title_from_header(header: str) -> str | None:
+    """'add a recipe for pancakes' -> 'Pancakes'; "save grandma's lasagna recipe" -> "Grandma's lasagna"."""
+    line = header.strip().rstrip(":.!").strip()
+    for rx in HEADER_TITLE_RES:
+        m = rx.search(line)
+        if m and m.group(1).strip():
+            title = m.group(1).strip(" :.")
+            if title.lower() in ("me", "us", "you", "later", "the family", "my family"):
+                return None  # "save this recipe for me:"
+            return title[:1].upper() + title[1:] if len(title) <= 80 else None
+    m = re.match(r"^(.*?)\s*\brecipes?\b", HEADER_LEAD_RE.sub("", line), re.I)
+    if m and m.group(1).strip(" :"):
+        title = m.group(1).strip(" :")
+        return title[:1].upper() + title[1:]
+    return None
+
+
+def parse_recipe_text(text: str, header: str | None = None) -> dict | None:
+    """Split recipe text with an Ingredients heading into a draft. Returns None when
+    there's no Ingredients section (then Emerald structures the text instead)."""
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    if not any(_section_of(l) == "ingredients" for l in lines):
+        return None
+
+    title = title_from_header(header) if header else None
+    intro, buckets, section = [], {"ingredients": [], "steps": [], "notes": []}, "intro"
+    servings = prep = cook = None
+    for line in lines:
+        kind = _section_of(line)
+        if kind:
+            section = kind
+            continue
+        if section == "intro":
+            m = FIELD_RE.match(line)
+            if m:
+                key, value = m.group(1).lower(), m.group(2).strip()
+                if key in ("title", "name"):
+                    title = title or value
+                elif key in ("serves", "servings", "yield", "makes"):
+                    servings = value
+                elif key.startswith("prep"):
+                    prep = _duration(value)
+                else:
+                    cook = _duration(value)
+                continue
+            intro.append(line)
+        else:
+            cleaned = LINE_BULLET_RE.sub("", line).strip() if not is_heading(line) else line
+            if cleaned:
+                buckets[section].append(cleaned)
+
+    if not title and intro:
+        title = intro.pop(0).strip("*#_ ")
+    if not buckets["ingredients"]:
+        return None
+    return {
+        "title": (title or "New recipe")[:200], "description": " ".join(intro) or None, "servings": servings,
+        "prep_minutes": prep, "cook_minutes": cook,
+        "ingredients": buckets["ingredients"], "steps": buckets["steps"], "tags": [], "cuisine": None,
+        "source_url": None, "image_url": None, "notes": "\n".join(buckets["notes"]) or None,
+        "favorite": False, "imported_by": "text", "untitled": not title,
+    }
+
+
+def unique_title(db: Session, title: str) -> str:
+    """'Pancakes' if it's free, else 'Pancakes (2)', 'Pancakes (3)'…"""
+    title = title.strip()
+    if not live_recipes(db).filter(Recipe.title.ilike(title)).first():
+        return title
+    n = 2
+    while live_recipes(db).filter(Recipe.title.ilike(f"{title} ({n})")).first():
+        n += 1
+    return f"{title} ({n})"
+
+
+def create_from_draft(draft: dict, db: Session, source: str) -> Recipe:
+    """Save a draft (import, pasted text, or agent arguments) as a recipe."""
+    r = Recipe(created_by=source)
+    _apply(r, {k: v for k, v in draft.items() if k in RecipeIn.model_fields})
+    db.add(r)
+    db.commit()
+    db.refresh(r)
+    return r
+
+
+# ---------------------------------------------------------------------------
 # Chat (Emerald) helpers — the agent tools in agent.py call these.
 # ---------------------------------------------------------------------------
 def find_by_title(db: Session, title: str) -> list[Recipe]:

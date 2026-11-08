@@ -1,6 +1,6 @@
 import { forwardRef, FormEvent, KeyboardEvent, ReactNode, useEffect, useLayoutEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AlertCircle, ArrowUp, Check, Maximize2, RotateCcw } from 'lucide-react'
+import { AlertCircle, ArrowUp, BookOpen, Check, Maximize2, RotateCcw } from 'lucide-react'
 import { Button, IconButton, SlideOver } from './ui'
 import { EmeraldMark } from './EmeraldMark'
 import { answeredBy, optionLabel, useEmeraldChat, type EmeraldMessage } from '../hooks/useEmeraldChat'
@@ -109,6 +109,17 @@ function Avatar() {
   )
 }
 
+function OpenRecipe({ recipe }: { recipe: { id: number; title: string } }) {
+  const navigate = useNavigate()
+  const { closePanel } = useEmeraldChat()
+  return (
+    <Button size="sm" variant="secondary" icon={BookOpen} className="mt-2.5"
+      onClick={() => { closePanel(); navigate(`/recipes/${recipe.id}`) }}>
+      Open recipe
+    </Button>
+  )
+}
+
 function MessageRow({ m, onAnswer, disabled }: { m: EmeraldMessage; onAnswer: (id: number, choice: string) => void; disabled: boolean }) {
   if (m.role === 'user') {
     return (
@@ -147,6 +158,8 @@ function MessageRow({ m, onAnswer, disabled }: { m: EmeraldMessage; onAnswer: (i
             })}
           </div>
         )}
+
+        {m.recipe && <OpenRecipe recipe={m.recipe} />}
 
         {by && <p className="mt-1.5 text-xs text-muted">{by}</p>}
       </div>

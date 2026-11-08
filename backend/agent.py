@@ -552,21 +552,19 @@ async def _recipe_tool(name: str, args: dict, db, source: str):
         title = args["title"].strip()
         if rx.live_recipes(db).filter(Recipe.title.ilike(title)).first():
             return f"There's already a recipe called '{title}'."
-        r = Recipe(title=title, ingredients=_as_list(args.get("ingredients")), steps=_as_list(args.get("steps")),
-                   tags=_as_list(args.get("tags")), servings=args.get("servings"),
-                   prep_minutes=args.get("prep_minutes"), cook_minutes=args.get("cook_minutes"),
-                   description=args.get("description"), source_url=args.get("source_url"),
-                   notes=args.get("notes"), created_by=source)
-        db.add(r); db.commit()
+        r = rx.create_from_draft({
+            "title": title, "ingredients": _as_list(args.get("ingredients")), "steps": _as_list(args.get("steps")),
+            "tags": _as_list(args.get("tags")), "servings": args.get("servings"),
+            "prep_minutes": args.get("prep_minutes"), "cook_minutes": args.get("cook_minutes"),
+            "description": args.get("description"), "source_url": args.get("source_url"), "notes": args.get("notes"),
+        }, db, source)
         return f"Saved recipe '{r.title}' ({len(r.ingredients)} ingredients, {len(r.steps)} steps)."
 
     if name == "import_recipe_url":
         draft = await rx.fetch_recipe_draft(args["url"], db)
-        draft.pop("imported_by", None)
         if rx.live_recipes(db).filter(Recipe.title.ilike(draft["title"])).first():
             return f"'{draft['title']}' is already in the cookbook."
-        r = Recipe(created_by=source, **{k: v for k, v in draft.items() if hasattr(Recipe, k)})
-        db.add(r); db.commit()
+        r = rx.create_from_draft(draft, db, source)
         return f"Saved '{r.title}' from the link ({len(r.ingredients)} ingredients, {len(r.steps)} steps)."
 
     matches = rx.find_by_title(db, args["title"])
