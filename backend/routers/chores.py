@@ -71,8 +71,17 @@ class CompleteRequest(BaseModel):
     completed_by: Optional[str] = None
 
 
+def _utc(local_naive: datetime) -> datetime:
+    """A local wall-clock moment as naive UTC, the way completions are stored.
+    (The server runs in the family's timezone; completed_at is naive UTC.)"""
+    if local_naive <= datetime(1971, 1, 1):
+        return local_naive          # datetime.min = "any time ever"
+    from datetime import timezone
+    return local_naive.astimezone(timezone.utc).replace(tzinfo=None)
+
+
 def _period_start(chore: Chore, today: date) -> datetime:
-    """Start of the current period a completion counts toward."""
+    """Start of the current period a completion counts toward (local midnight)."""
     if chore.frequency == "daily":
         return datetime(today.year, today.month, today.day)
     if chore.frequency == "weekly":
@@ -106,7 +115,7 @@ def _next_period_start(chore: Chore, today: date) -> date | None:
 
 def chore_to_dict(chore: Chore, db: Session) -> dict:
     today = date.today()
-    since = _period_start(chore, today)
+    since = _utc(_period_start(chore, today))
     done = (
         db.query(ChoreCompletion)
         .filter(ChoreCompletion.chore_id == chore.id, ChoreCompletion.completed_at >= since)
@@ -173,7 +182,7 @@ def clear_past_chores(db: Session = Depends(get_db)):
     today = date.today()
     removed = 0
     for chore in db.query(Chore).all():
-        since = _period_start(chore, today)
+        since = _utc(_period_start(chore, today))
         if chore.frequency == "once":
             if db.query(ChoreCompletion).filter(ChoreCompletion.chore_id == chore.id).count():
                 db.delete(chore)  # cascade removes its completions
@@ -267,7 +276,7 @@ def uncomplete_chore(chore_id: int, db: Session = Depends(get_db)):
     chore = db.query(Chore).filter(Chore.id == chore_id).first()
     if not chore:
         raise HTTPException(status_code=404, detail="Chore not found")
-    since = _period_start(chore, date.today())
+    since = _utc(_period_start(chore, date.today()))
     completion = (
         db.query(ChoreCompletion)
         .filter(ChoreCompletion.chore_id == chore.id, ChoreCompletion.completed_at >= since)

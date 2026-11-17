@@ -34,6 +34,7 @@ services:
     volumes:
       - ${BACKUP_PATH:-./backups}:/backups
     environment:
+      TZ: ${TZ:-America/New_York}
       POSTGRES_HOST: db
       POSTGRES_DB: homehub
       POSTGRES_USER: homehub
@@ -53,6 +54,7 @@ services:
     build: ./backend
     restart: unless-stopped
     environment:
+      TZ: ${TZ:-America/New_York}
       DATABASE_URL: postgresql://homehub:${DB_PASSWORD}@db:5432/homehub
       SECRET_KEY: ${SECRET_KEY:-change-me-to-a-long-random-string}
       DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:-admin}
@@ -74,6 +76,8 @@ services:
       - ./.env:/app/host.env
       # Codex sign-in (Emerald's primary brain) — survives image updates
       - codex_home:/data/codex
+      # Photos (recipes, items, family). Set MEDIA_PATH in .env to keep them in a backed-up folder
+      - ${MEDIA_PATH:-media_data}:/data/media
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     depends_on:
@@ -104,6 +108,7 @@ services:
     build: ./telegram
     restart: unless-stopped
     environment:
+      TZ: ${TZ:-America/New_York}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_ALLOWED_CHAT_IDS: ${TELEGRAM_ALLOWED_CHAT_IDS:-}
       BACKEND_URL: http://backend:8000
@@ -126,3 +131,4 @@ services:
 volumes:
   postgres_data:
   codex_home:
+  media_data:

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Button, Dialog, Field, Input, Select, Tabs, Textarea } from './ui'
-import { cn } from '../lib/utils'
+import { cn, utcDate } from '../lib/utils'
 import { Item, Category, Location, createItem, updateItem, createLocation, createCategory, locationOptionLabel } from '../lib/api'
 import toast from 'react-hot-toast'
 
@@ -110,7 +110,7 @@ export default function ItemModal({ item, categories, locations, onClose, onSave
 
   return (
     <Dialog open onClose={onClose} title={item ? 'Edit item' : 'Add item'} footer={footer}
-      description={item ? `Entered ${new Date(item.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}` : undefined}>
+      description={item ? `Entered ${utcDate(item.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}` : undefined}>
       <form className="space-y-4" onSubmit={e => { e.preventDefault(); save() }}>
         <Field label="Name" required>
           <Input autoFocus value={form.name} onChange={e => set('name', e.target.value)} placeholder="Pasta, drill, router" />
