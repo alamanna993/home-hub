@@ -16,6 +16,8 @@ SETTING_DEFINITIONS = [
     {"key": "discord_channel_id", "description": "Discord channel ID the bot listens in", "secret": False},
     {"key": "low_stock_alert_channel", "description": "Discord channel ID for automatic low-stock alerts (leave blank to disable)", "secret": False},
     {"key": "site_title", "description": "Dashboard title shown in the sidebar", "secret": False},
+    {"key": "briefing_enabled", "description": "Send the family a morning summary on Telegram: true | false", "secret": False},
+    {"key": "briefing_time", "description": "When to send the morning summary, local time as HH:MM (default 07:00)", "secret": False},
     {"key": "ics_urls", "description": "External calendar feeds (iCal/ICS URLs from Google or Outlook), comma-separated. Events appear read-only on the calendar.", "secret": True},
     # Emerald's brains: primary + automatic backup
     {"key": "llm_provider", "description": "Emerald's primary brain: codex | ollama | lmstudio | openai | claude", "secret": False},
@@ -151,6 +153,22 @@ def remove_ics_feed(url: str, db: Session = Depends(get_db), _: User = Depends(r
 def require_api_key(x_api_key: Optional[str] = Header(None)):
     if not x_api_key or x_api_key != auth_module.INTERNAL_API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
+
+
+@router.get("/briefing/preview")
+async def briefing_preview(db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    """Today's briefing as it would be sent."""
+    from briefing import build_briefing
+    return {"text": await build_briefing(db)}
+
+
+@router.post("/briefing/test")
+async def briefing_test(db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    """Send today's briefing to Telegram right now."""
+    from briefing import build_briefing, send_telegram
+    text = await build_briefing(db)
+    result = await send_telegram(db, text)
+    return {**result, "text": text}
 
 
 @router.get("/runtime")
