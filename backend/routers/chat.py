@@ -1027,6 +1027,12 @@ async def undo_changes(changeset_id: int, db: Session = Depends(get_db)):
     except changes.UndoError as e:
         raise HTTPException(status_code=400, detail=str(e))
     await sync_outlook_after_undo(db, res["outlook"])
+    # Remember it in the stored conversation too, so a reload doesn't offer Undo again
+    for row in db.query(ChatMessage).filter(ChatMessage.role == "emerald").order_by(ChatMessage.id.desc()).limit(300):
+        card = (row.meta or {}).get("changes")
+        if card and card.get("id") == changeset_id:
+            row.meta = {**row.meta, "changes": {**card, "undone": True}}
+    db.commit()
     lines = res["summary"]["lines"]
     reply = "↩️ Undone: " + "; ".join(lines) + ("." if lines else "")
     if res["skipped"]:

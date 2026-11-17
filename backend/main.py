@@ -90,9 +90,14 @@ def seed_defaults(db: Session):
         ("briefing_enabled", "true"),    # sends only once Telegram is connected
         ("briefing_time", "07:00"),
     ]
+    first_briefing_run = not db.query(Setting).filter_by(key="briefing_enabled").first()
     for key, value in default_settings:
         if not db.query(Setting).filter_by(key=key).first():
             db.add(Setting(key=key, value=value))
+    if first_briefing_run and not db.query(Setting).filter_by(key="briefing_last_sent").first():
+        # Deploying mid-morning must not message the family unasked: the first briefing is tomorrow's
+        from datetime import date as _date
+        db.add(Setting(key="briefing_last_sent", value=_date.today().isoformat()))
     db.flush()
 
     # Emerald v2 (once): Codex becomes the primary brain and whatever local model was
