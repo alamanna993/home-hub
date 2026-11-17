@@ -17,10 +17,17 @@ logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
 from agent import TOOLS, execute_tool  # noqa: E402
 from database import SessionLocal  # noqa: E402
 
+import changes  # noqa: E402
+
+# The chat request that launched this tool server owns a change set; record into it so
+# one Undo reverses everything Codex did in the turn.
+changes.adopt(int(os.environ.get("HOMEHUB_CHANGESET") or 0) or None)
+
 SOURCE = os.environ.get("HOMEHUB_SOURCE") or "emerald"
 CALL_LOG = os.environ.get("HOMEHUB_CALL_LOG")
 READ_ONLY_TOOLS = {"find_items", "list_locations", "list_categories", "list_family",
-                   "list_events", "list_chores", "list_meals", "find_recipes", "get_recipe"}
+                   "list_events", "list_chores", "list_meals", "find_recipes", "get_recipe",
+                   "list_shopping", "list_expiring", "today_summary"}
 PROTOCOL_VERSION = "2025-06-18"
 
 MCP_TOOLS = [{"name": t["function"]["name"],

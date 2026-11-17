@@ -108,7 +108,7 @@ Examples (each -> the "actions" array):
 
 
 def get_system_prompt(locations: list[str] | None = None, family: list[str] | None = None,
-                      categories: list[str] | None = None) -> str:
+                      categories: list[str] | None = None, history_block: str = "") -> str:
     from datetime import date, timedelta
     today = date.today()
     friday = today + timedelta(days=((4 - today.weekday()) % 7) or 7)
@@ -119,6 +119,10 @@ def get_system_prompt(locations: list[str] | None = None, family: list[str] | No
         locations_section += "Known item categories: " + ", ".join(categories) + ".\n"
     if family:
         locations_section += "Family members (use for \"person\"): " + ", ".join(family) + ".\n"
+    if history_block:
+        locations_section += ("\nConversation so far (oldest first). Use it to work out what \"it\", \"that\", "
+                              "\"them\" or \"there\" refers to, and copy that name into \"item\":\n"
+                              + history_block.replace("{", "(").replace("}", ")") + "\n")
     return SYSTEM_PROMPT_TEMPLATE.format(
         today=today.isoformat(),
         weekday=today.strftime("%A"),
@@ -420,12 +424,14 @@ async def structured_json(db, system: str, message: str, schema: dict) -> dict:
     return await with_fallback(db, run)
 
 
-async def parse_message(user_message: str, db=None) -> list[dict]:
+async def parse_message(user_message: str, db=None, history: list[dict] | None = None) -> list[dict]:
     """Parse a chat message into one or more action dicts."""
     if not brain_chain(db):
         return _keyword_parse(user_message)
+    block = "\n".join(f"{'Person' if m['role'] == 'user' else 'Emerald'}: {m['text'][:200]}"
+                      for m in (history or [])[-4:])
     system_prompt = get_system_prompt(locations=_known_locations(db), family=_known_family(db),
-                                      categories=_known_categories(db))
+                                      categories=_known_categories(db), history_block=block)
     try:
         raw = await with_fallback(db, lambda p: _parse_with(p, db, user_message, system_prompt))
         return _normalize_actions(raw)

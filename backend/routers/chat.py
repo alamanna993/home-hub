@@ -2,11 +2,15 @@ import re
 import time
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Optional
+
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
+import changes
+from auth import get_current_user
 from database import get_db
-from models import Item, Location, Category
+from models import ChatMessage, Item, Location, Category, User
 from location_tree import path_str, resolve_path, split_path
 from llm import parse_message, generate_response
 
@@ -16,6 +20,101 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 class ChatRequest(BaseModel):
     message: str
     source: str = "dashboard"
+    # Where the person is in the app ({"path": "/recipes/4", "recipe_id": 4}), so "this recipe" works
+    context: Optional[dict] = None
+    # Filled in by the server from the stored conversation (never trusted from the client)
+    history: Optional[list[dict]] = None
+
+
+# ---------------------------------------------------------------------------
+# Who is talking, and what was just said
+# ---------------------------------------------------------------------------
+def resolve_source(raw: str, user: User, x_api_key: Optional[str]) -> str:
+    """The web app always speaks as the logged-in person. Bots (which send the internal
+    API key) name who is talking themselves: 'telegram:Mom'."""
+    from auth import INTERNAL_API_KEY
+    if x_api_key and x_api_key == INTERNAL_API_KEY:
+        return (raw or "bot")[:100]
+    return f"dashboard:{user.username}"[:100]
+
+
+def credited_person(db: Session, source: str) -> Optional[str]:
+    """The family member behind a source, if there is one ('telegram:Mom' -> Mom).
+    A login name that isn't a family member's name credits nobody."""
+    from models import FamilyMember
+    who = source.split(":", 1)[1].strip() if ":" in source else ""
+    if not who:
+        return None
+    member = db.query(FamilyMember).filter(FamilyMember.name.ilike(who)).first()
+    return member.name if member else None
+
+
+HISTORY_WINDOW_HOURS = 6
+HISTORY_TURNS = 8
+
+
+def recent_turns(db: Session, source: str) -> list[dict]:
+    """The last few messages of this conversation, oldest first, for the model."""
+    from datetime import datetime, timedelta
+    since = datetime.utcnow() - timedelta(hours=HISTORY_WINDOW_HOURS)
+    rows = (db.query(ChatMessage).filter(ChatMessage.source == source, ChatMessage.created_at >= since)
+            .order_by(ChatMessage.id.desc()).limit(HISTORY_TURNS).all())
+    return [{"role": r.role, "text": r.text} for r in reversed(rows)]
+
+
+def cross_off_shopping(db: Session, name: str) -> str | None:
+    """An item that was on the shopping list was just bought: take it off the list."""
+    from models import ShoppingItem
+    low = name.strip().lower()
+    for row in db.query(ShoppingItem).filter(ShoppingItem.checked_at.is_(None)).all():
+        n = row.name.lower()
+        if n == low or n in low or low in n:
+            label = row.name
+            db.delete(row)
+            db.commit()
+            return label
+    return None
+
+
+def history_text(history: list[dict] | None, limit: int = HISTORY_TURNS) -> str:
+    lines = []
+    for m in (history or [])[-limit:]:
+        who = "Person" if m["role"] == "user" else "Emerald"
+        lines.append(f"{who}: {m['text'][:300]}")
+    return "\n".join(lines)
+
+
+SHOPPING_RE = re.compile(
+    r"\b(shopping|grocery|groceries|store)\s+list\b|\b(on|to|from|off|onto)\s+(the|our|my)\s+list\b|"
+    r"\bwe\s+(need|have)\s+to\s+(buy|get|pick up)\b|\bneed\s+to\s+(buy|pick up)\b|\bto\s+buy\b", re.I)
+
+# A short reply that leans on what was just said ("move it to the fridge", "actually Friday")
+FOLLOWUP_RE = re.compile(
+    r"^\s*(and|also|actually|no|nope|wait|then|instead|make that|change that|undo|same)\b|"
+    r"\b(it|that|them|those|these|there|same one)\b", re.I)
+
+
+def is_followup(message: str, history: list[dict] | None) -> bool:
+    return bool(history) and len(message.split()) <= 10 and bool(FOLLOWUP_RE.search(message))
+
+
+def page_context(db: Session, ctx: Optional[dict]) -> str:
+    """One line about what the person is looking at, for the model."""
+    if not ctx:
+        return ""
+    from models import Recipe
+    bits = []
+    if ctx.get("recipe_id"):
+        r = db.query(Recipe).filter(Recipe.id == ctx["recipe_id"]).first()
+        if r:
+            bits.append(f"the recipe \"{r.title}\" (id {r.id})")
+    if ctx.get("location_id"):
+        loc = db.query(Location).filter(Location.id == ctx["location_id"]).first()
+        if loc:
+            bits.append(f"the location {path_str(loc)}")
+    if not bits and ctx.get("path"):
+        bits.append(f"the {str(ctx['path']).strip('/').split('/')[0] or 'Today'} page")
+    return ("The person is looking at " + " and ".join(bits) + ". \"This\", \"here\" and \"this recipe\" mean that.") if bits else ""
 
 
 def find_best_item_match(name: str, db: Session):
@@ -195,6 +294,48 @@ RECIPE_WORD_RE = re.compile(r"\brecipes?\b", re.I)
 RECIPE_INTENT_RE = re.compile(r"\b(add|adding|save|saving|store|keep|new|create|here'?s|here is)\b", re.I)
 INGREDIENTS_LINE_RE = re.compile(r"^\W*ingredients?\W*$", re.I)
 URL_RE = re.compile(r"https?://", re.I)
+LINK_RE = re.compile(r"https?://\S+", re.I)
+# Words that may surround a bare recipe link: "save this recipe https://…"
+LINK_FILLER = {"save", "add", "import", "grab", "get", "this", "that", "recipe", "recipes", "to", "my", "the", "from",
+               "please", "pls", "can", "you", "cookbook", "a", "it", "into", "link", "here", "is", "store", "keep",
+               "new", "and", "for", "us", "our"}
+
+
+def recipe_link_in(message: str) -> str | None:
+    """The link, when the message is just a link (or 'save this recipe <link>')."""
+    links = LINK_RE.findall(message)
+    if len(links) != 1:
+        return None
+    words = re.findall(r"[a-z']+", LINK_RE.sub(" ", message).lower())
+    if len(words) > 8 or any(w not in LINK_FILLER for w in words):
+        return None
+    return links[0].rstrip(".,);")
+
+
+async def save_recipe_from_link(req: "ChatRequest", db: Session, url: str) -> dict:
+    """A pasted link: fetch the page, read the recipe, save it with its photo. No model
+    is needed when the page publishes its recipe data."""
+    from models import Recipe
+    from routers import recipes as rx
+    prior = rx.live_recipes(db).filter(Recipe.source_url == url).first()
+    if prior:
+        return {"reply": f"📖 You already have **{prior.title}** saved from that link.", "action": "save_recipe",
+                "recipes": [{"id": prior.id, "title": prior.title, "image_url": prior.image_url}],
+                "recipe": {"id": prior.id, "title": prior.title, "image_url": prior.image_url}}
+    try:
+        draft = await rx.fetch_recipe_draft(url, db)
+    except HTTPException as e:
+        return {"reply": f"🤔 {e.detail}", "action": "recipe_unreadable"}
+    wanted = draft["title"]
+    draft["title"] = rx.unique_title(db, wanted)
+    draft.pop("imported_by", None)
+    recipe = rx.create_from_draft(draft, db, req.source)
+    n_ing = sum(1 for l in recipe.ingredients or [] if not rx.is_heading(l))
+    reply = f"✅ Saved **{recipe.title}** to Recipes: {n_ing} ingredients, {len(recipe.steps or [])} steps."
+    if not recipe.image_url:
+        reply += " I couldn't find a photo on that page; you can add one from the recipe."
+    card = {"id": recipe.id, "title": recipe.title, "image_url": recipe.image_url}
+    return {"reply": reply, "action": "save_recipe", "recipes": [card], "recipe": card}
 
 
 def is_recipe_paste(message: str) -> bool:
@@ -257,7 +398,7 @@ async def save_recipe_from_chat(req: "ChatRequest", db: Session) -> dict:
     for first_line, _ in unreadable:
         reply += f"\n⚠️ I couldn't read the recipe starting \"{first_line}\", so it wasn't saved."
 
-    recipes = [{"id": r.id, "title": r.title} for r, _, _ in saved]
+    recipes = [{"id": r.id, "title": r.title, "image_url": r.image_url} for r, _, _ in saved]
     return {"reply": reply, "action": "save_recipe", "recipes": recipes,
             "recipe": recipes[0] if len(recipes) == 1 else None}
 
@@ -306,15 +447,19 @@ async def conversational_reply(req: "ChatRequest", db: Session, parsed: dict) ->
     whole app (edit/delete/rename items, events, chores, meals, locations, people).
     Falls back to a plain contextual answer if the agent can't run."""
     context = await build_house_context(db)
+    seen = page_context(db, req.context)
+    if seen:
+        context += "\n\n" + seen
     try:
         from agent import run_agent
-        reply = await run_agent(req.message, db=db, source=req.source, context=context)
+        reply = await run_agent(req.message, db=db, source=req.source, context=context, history=req.history)
         if reply:
             return {"reply": reply, "action": "agent", "parsed": parsed}
     except Exception as e:
         import logging
         logging.getLogger("homehub-chat").exception(f"agent failed, falling back to chat: {e!r}")
-    reply = await generate_response(req.message, context=context, db=db)
+    chat_context = context + ("\n\nRecent conversation:\n" + history_text(req.history) if req.history else "")
+    reply = await generate_response(req.message, context=chat_context, db=db)
     return {"reply": reply, "action": "chat", "parsed": parsed}
 
 
@@ -449,6 +594,14 @@ def try_resolve_pending_text(message: str, pending: dict, source: str, db: Sessi
     text = message.strip().rstrip(".!")
     tl = text.lower()
 
+    if pending.get("type") == "photo_items":
+        if YES_RE.match(text):
+            return apply_photo_items(pending, source, db)
+        if NO_RE.match(text):
+            PENDING.pop(source, None)
+            return {"reply": "👍 OK, I didn't add anything.", "action": "clarified"}
+        return None
+
     if pending.get("type") == "confirm":
         if YES_RE.match(text):
             return apply_placements(pending, source, db)
@@ -487,6 +640,9 @@ async def handle_action(parsed: dict, req: ChatRequest, db: Session) -> dict:
             if open_label(item):
                 qty_str += f" ({open_label(item)} in the open one)"
             reply = f"✅ **{item.name}** — {loc_str or 'location unknown'} | Qty: {qty_str}"
+            if item.location:
+                return {"reply": reply, "action": action, "parsed": parsed,
+                        "open": [{"label": f"Open {loc_str}", "path": f"/inventory?loc={item.location.id}"}]}
         else:
             reply = f"❌ Couldn't find **{item_name}** in the inventory."
         return {"reply": reply, "action": action, "parsed": parsed}
@@ -551,6 +707,9 @@ async def handle_action(parsed: dict, req: ChatRequest, db: Session) -> dict:
         reply += f" (qty: {result['quantity'] or 1}) to {result['location']['name'] if result.get('location') else 'inventory'}."
         if result.get("category"):
             reply += f" {result['category'].get('icon') or '🏷️'} {result['category']['name']}."
+        crossed = cross_off_shopping(db, result["name"])
+        if crossed:
+            reply += f" Crossed {crossed} off the shopping list."
         if result.get("open_label"):
             reply += f" Open one: {result['open_label']}."
         if expires:
@@ -795,7 +954,7 @@ async def handle_action(parsed: dict, req: ChatRequest, db: Session) -> dict:
                     if chore:
                         break
         if chore:
-            person = parsed.get("person") or (req.source.split(":", 1)[1] if ":" in req.source else None)
+            person = parsed.get("person") or credited_person(db, req.source)
             db.add(ChoreCompletion(chore_id=chore.id, completed_by=person or chore.assigned_to))
             db.commit()
             who = person or chore.assigned_to or "someone"
@@ -814,11 +973,88 @@ async def handle_action(parsed: dict, req: ChatRequest, db: Session) -> dict:
 
 
 @router.post("/")
-async def chat(req: ChatRequest, db: Session = Depends(get_db)):
+async def chat(req: ChatRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user),
+               x_api_key: Optional[str] = Header(None)):
     from llm import current_brain
-    result = await _chat(req, db)
+    source = resolve_source(req.source, user, x_api_key)
+    history = recent_turns(db, source)
+    req = req.model_copy(update={"source": source, "history": history})
+    with changes.recording(source, req.message) as cs_id:
+        result = await _chat(req, db)
     result["brain"] = current_brain()  # which of Emerald's brains answered, if any
+    card = changes.finish(db, cs_id)
+    if card:
+        result["changes"] = card
+    store_turn(db, source, req.message, result)
     return result
+
+
+def store_turn(db: Session, source: str, user_text: str, result: dict, user_meta: dict | None = None) -> None:
+    """Remember both sides of the exchange (the web chat reloads from this)."""
+    meta = {k: result[k] for k in ("brain", "pending", "recipe", "recipes", "changes", "cards", "open")
+            if result.get(k)}
+    db.add(ChatMessage(source=source, role="user", text=user_text, meta=user_meta))
+    db.add(ChatMessage(source=source, role="emerald", text=result.get("reply") or "", meta=meta or None))
+    db.commit()
+
+
+@router.get("/history")
+def get_history(limit: int = 60, db: Session = Depends(get_db), user: User = Depends(get_current_user),
+                x_api_key: Optional[str] = Header(None), source: Optional[str] = None):
+    src = resolve_source(source or "", user, x_api_key)
+    rows = (db.query(ChatMessage).filter(ChatMessage.source == src)
+            .order_by(ChatMessage.id.desc()).limit(min(limit, 200)).all())
+    return [{"id": r.id, "role": r.role, "text": r.text, "meta": r.meta,
+             "created_at": r.created_at.isoformat()} for r in reversed(rows)]
+
+
+@router.delete("/history")
+def clear_history(db: Session = Depends(get_db), user: User = Depends(get_current_user),
+                  x_api_key: Optional[str] = Header(None), source: Optional[str] = None):
+    """New conversation: forget what was said so far."""
+    src = resolve_source(source or "", user, x_api_key)
+    n = db.query(ChatMessage).filter(ChatMessage.source == src).delete()
+    db.commit()
+    PENDING.pop(src, None)
+    return {"ok": True, "deleted": n}
+
+
+@router.post("/undo/{changeset_id}")
+async def undo_changes(changeset_id: int, db: Session = Depends(get_db)):
+    """Reverse everything one Emerald request changed."""
+    try:
+        res = changes.undo(db, changeset_id)
+    except changes.UndoError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    await sync_outlook_after_undo(db, res["outlook"])
+    lines = res["summary"]["lines"]
+    reply = "↩️ Undone: " + "; ".join(lines) + ("." if lines else "")
+    if res["skipped"]:
+        reply += f" ({res['skipped']} part{'s' if res['skipped'] != 1 else ''} couldn't be undone because something changed since.)"
+    return {"ok": True, "reply": reply, "action": "undo", "changes": res["summary"]}
+
+
+async def sync_outlook_after_undo(db: Session, outlook: dict) -> None:
+    """Calendar events are mirrored to Outlook; bring Outlook back in line with the undo."""
+    import logging
+    import msgraph
+    from models import CalendarEvent
+    log = logging.getLogger("homehub-chat")
+    try:
+        for ms_id in outlook.get("delete_ms_ids", []):
+            await msgraph.push_delete(db, ms_id)
+        for pk in outlook.get("recreate", []):
+            event = db.query(CalendarEvent).filter(CalendarEvent.id == pk).first()
+            if event:
+                event.ms_id = None   # the old Outlook copy is gone; make a new one
+                db.commit()
+                await msgraph.push_create(db, event)
+        for pk in outlook.get("update", []):
+            event = db.query(CalendarEvent).filter(CalendarEvent.id == pk).first()
+            if event:
+                await msgraph.push_update(db, event)
+    except Exception as e:  # noqa: BLE001
+        log.warning("Outlook follow-up after undo failed: %s", e)
 
 
 async def _chat(req: ChatRequest, db: Session) -> dict:
@@ -830,10 +1066,22 @@ async def _chat(req: ChatRequest, db: Session) -> dict:
             return resolved
         PENDING.pop(req.source, None)  # not an answer — drop the question and process normally
 
+    link = recipe_link_in(req.message)
+    if link:
+        return await save_recipe_from_link(req, db, link)
+
     if is_recipe_paste(req.message):
         return await save_recipe_from_chat(req, db)
 
-    actions =(parse_bulk_list(req.message) or await parse_message(req.message, db))[:MAX_ACTIONS_PER_MESSAGE]
+    # The quick parser only knows inventory; anything about the shopping list belongs to the tool agent
+    if SHOPPING_RE.search(req.message):
+        return await conversational_reply(req, db, {"action": "unknown"})
+
+    # "move it to the fridge": the tool agent has the conversation and can resolve "it"
+    if is_followup(req.message, req.history):
+        return await conversational_reply(req, db, {"action": "unknown"})
+
+    actions =(parse_bulk_list(req.message) or await parse_message(req.message, db, history=req.history))[:MAX_ACTIONS_PER_MESSAGE]
 
     if len(actions) == 1:
         parsed = actions[0]
@@ -880,6 +1128,120 @@ async def _chat(req: ChatRequest, db: Session) -> dict:
     return out
 
 
+# ---------------------------------------------------------------------------
+# Photos: a recipe card, a receipt, a shelf — Emerald reads it (Codex only)
+# ---------------------------------------------------------------------------
+def _nullable(*types):
+    return {"type": list(types) + ["null"]}
+
+
+VISION_SCHEMA = {
+    "type": "object", "additionalProperties": False, "required": ["kind", "reply", "recipe", "items"],
+    "properties": {
+        "kind": {"type": "string", "enum": ["recipe", "items", "other"]},
+        "reply": {"type": "string"},
+        "recipe": {"anyOf": [{"type": "null"}, {
+            "type": "object", "additionalProperties": False,
+            "required": ["title", "description", "servings", "prep_minutes", "cook_minutes", "ingredients", "steps", "tags", "cuisine"],
+            "properties": {
+                "title": {"type": "string"}, "description": _nullable("string"), "servings": _nullable("string"),
+                "prep_minutes": _nullable("integer"), "cook_minutes": _nullable("integer"),
+                "ingredients": {"type": "array", "items": {"type": "string"}},
+                "steps": {"type": "array", "items": {"type": "string"}},
+                "tags": {"type": "array", "items": {"type": "string"}}, "cuisine": _nullable("string")}}]},
+        "items": {"type": "array", "items": {
+            "type": "object", "additionalProperties": False, "required": ["name", "quantity", "unit"],
+            "properties": {"name": {"type": "string"}, "quantity": _nullable("number"), "unit": _nullable("string")}}},
+    },
+}
+
+VISION_SYSTEM = """You are Emerald, a family's home assistant, looking at a photo they sent.
+- If it shows a RECIPE (a recipe card, cookbook page, screenshot, handwritten): kind "recipe". Fill "recipe" with every
+  ingredient line (with amounts) and every step exactly as written; "items" is an empty list.
+- If it shows a grocery RECEIPT, or a fridge/pantry/shelf/haul of food and household goods: kind "items". List each distinct
+  thing in "items" with a clean name (no brand codes or prices), quantity and unit when visible; "recipe" is null.
+- Anything else: kind "other", answer helpfully in "reply".
+"reply" is one or two friendly sentences saying what you found."""
+
+
+def apply_photo_items(pending: dict, source: str, db: Session) -> dict:
+    """The person confirmed the items Emerald read from a photo: add them (unfiled)."""
+    PENDING.pop(source, None)
+    added = []
+    for it in pending["items"]:
+        qty = it.get("quantity") if isinstance(it.get("quantity"), (int, float)) and it["quantity"] > 0 else 1
+        item = Item(name=it["name"].strip()[:200], quantity=qty, unit=(it.get("unit") or None))
+        db.add(item)
+        added.append(item.name)
+    db.commit()
+    reply = f"✅ Added {len(added)} item{'s' if len(added) != 1 else ''}: " + ", ".join(added[:12]) + ("…" if len(added) > 12 else "")
+    return {"reply": reply + "\nThey're under **No location** until you tell me where they go.", "action": "clarified"}
+
+
+async def handle_photo(db: Session, source: str, disk_path: str, public_path: str, message: str) -> dict:
+    from llm import brain_chain, codex_options, _set_brain
+    from codex_brain import CodexError, codex_vision
+    from routers import recipes as rx
+    if "codex" not in brain_chain(db):
+        return {"reply": "📷 Reading photos needs Codex, and it isn't Emerald's brain right now. "
+                         "Choose it in Settings → Emerald.", "action": "photo_unavailable"}
+    try:
+        seen = await codex_vision(VISION_SYSTEM, message, disk_path, VISION_SCHEMA, **codex_options(db))
+    except CodexError as e:
+        return {"reply": f"📷 I couldn't read that photo right now. Reading photos needs Codex to be signed in ({e}).",
+                "action": "photo_unavailable"}
+    _set_brain("codex", db, fallback=False)
+    kind = seen.get("kind")
+    if kind == "recipe" and seen.get("recipe") and (seen["recipe"]["ingredients"] or seen["recipe"]["steps"]):
+        r = seen["recipe"]
+        draft = {**r, "title": rx.unique_title(db, r["title"] or "Recipe from a photo"),
+                 "source_url": None, "image_url": None, "notes": None, "favorite": False}
+        recipe = rx.create_from_draft(draft, db, source)
+        card = {"id": recipe.id, "title": recipe.title, "image_url": recipe.image_url}
+        n = len([l for l in recipe.ingredients if not rx.is_heading(l)])
+        return {"reply": f"✅ Saved **{recipe.title}** from your photo: {n} ingredients, {len(recipe.steps)} steps. "
+                         "Check it over, since handwriting and small print can trip me up.",
+                "action": "save_recipe", "recipes": [card], "recipe": card}
+    if kind == "items" and seen.get("items"):
+        items = [i for i in seen["items"] if (i.get("name") or "").strip()][:60]
+        if items:
+            pid = uuid.uuid4().hex[:12]
+            options = ["✅ Yes, add them", "❌ No, skip"]
+            PENDING[source] = {"id": pid, "type": "photo_items", "items": items, "options": options, "created": time.time()}
+            names = ", ".join(i["name"] for i in items[:15]) + ("…" if len(items) > 15 else "")
+            question = f"📷 I can see {len(items)} item{'s' if len(items) != 1 else ''}: {names}. Add them to your inventory?"
+            return {"reply": question, "action": "ask_photo_items",
+                    "pending": {"id": pid, "type": "confirm", "question": question, "items": [i["name"] for i in items],
+                                "options": options}}
+    return {"reply": seen.get("reply") or "I couldn't make out much in that photo.", "action": "photo"}
+
+
+@router.post("/photo")
+async def chat_photo(file: UploadFile = File(...), message: str = Form(""), source: str = Form(""),
+                     db: Session = Depends(get_db), user: User = Depends(get_current_user),
+                     x_api_key: Optional[str] = Header(None)):
+    import os
+    from routers import media
+    src = resolve_source(source, user, x_api_key)
+    data = await file.read()
+    if len(data) > media.MAX_BYTES:
+        raise HTTPException(status_code=413, detail="That photo is larger than 15 MB.")
+    try:
+        public_path = media.save_image(data)
+    except media.MediaError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    disk_path = os.path.join(media.MEDIA_DIR, public_path.removeprefix("/media/"))
+    from llm import current_brain
+    with changes.recording(src, f"Photo: {message[:60]}" if message else "Photo") as cs_id:
+        result = await handle_photo(db, src, disk_path, public_path, message)
+    result["brain"] = current_brain()
+    card = changes.finish(db, cs_id)
+    if card:
+        result["changes"] = card
+    store_turn(db, src, message or "Photo", result, user_meta={"image": public_path})
+    return result
+
+
 class ClarifyRequest(BaseModel):
     source: str
     pending_id: str
@@ -888,8 +1250,10 @@ class ClarifyRequest(BaseModel):
 
 
 @router.post("/clarify")
-async def clarify(req: ClarifyRequest, db: Session = Depends(get_db)):
-    """Answer a pending location question (used by Telegram inline buttons)."""
+async def clarify(req: ClarifyRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user),
+                  x_api_key: Optional[str] = Header(None)):
+    """Answer a pending location question (the web chat's buttons, Telegram's inline buttons)."""
+    req = req.model_copy(update={"source": resolve_source(req.source, user, x_api_key)})
     pending = get_pending(req.source)
     if not pending or pending["id"] != req.pending_id:
         return {"reply": "⌛ That question expired — the item is saved without a location; you can set one in the app.",
@@ -899,8 +1263,21 @@ async def clarify(req: ClarifyRequest, db: Session = Depends(get_db)):
         choice = pending["options"][req.choice_index]
     if not choice:
         raise HTTPException(status_code=400, detail="No location choice provided")
-    if pending.get("type") == "confirm":
-        if choice.startswith("✅") or YES_RE.match(choice):
-            return apply_placements(pending, req.source, db)
-        return reject_placements(pending, req.source, db)
-    return apply_location_to_pending(pending, choice, req.source, db)
+    with changes.recording(req.source, f"Filed items: {choice}") as cs_id:
+        if pending.get("type") == "photo_items":
+            if choice.startswith("✅") or YES_RE.match(choice):
+                result = apply_photo_items(pending, req.source, db)
+            else:
+                PENDING.pop(req.source, None)
+                result = {"reply": "👍 OK, I didn't add anything.", "action": "clarified"}
+        elif pending.get("type") == "confirm":
+            if choice.startswith("✅") or YES_RE.match(choice):
+                result = apply_placements(pending, req.source, db)
+            else:
+                result = reject_placements(pending, req.source, db)
+        else:
+            result = apply_location_to_pending(pending, choice, req.source, db)
+    card = changes.finish(db, cs_id)
+    if card:
+        result["changes"] = card
+    return result

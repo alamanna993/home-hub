@@ -9,6 +9,7 @@ from datetime import date, datetime, timedelta
 import httpx
 from database import settings as env_settings
 from llm import _db_setting
+from tools_extra import EXTRA_NAMES, EXTRA_TOOLS, run as run_extra
 
 logger = logging.getLogger("homehub-agent")
 
@@ -22,6 +23,12 @@ When the user adds several things at once (a list of books, a shopping haul), ca
 create_item once per item — never skip any, and fill in author/category from your
 own knowledge when the user didn't say.
 If a lookup returns several matches, ask which one they meant instead of guessing.
+You can also manage chores, the shopping list, recipes (edit, restore, add missing ingredients
+to the list), the meal plan (plan_week fills the week from saved recipes), and locations (move or
+merge everything in one spot into another). When a request is about "it", "that" or "this", use the
+recent conversation and what the person is looking at. Before a big or hard-to-reverse change, say
+what you did plainly; every change can be undone from the chat, so act rather than ask when the
+request is clear.
 Use ISO format for dates (YYYY-MM-DD) and datetimes (YYYY-MM-DDTHH:MM:SS).
 If nothing needs changing, just answer from the household snapshot below.
 
@@ -158,6 +165,7 @@ def _find_location(db, path: str):
     return loc
 
 
+TOOLS = TOOLS + EXTRA_TOOLS   # chores, shopping, recipe edits, meal planning, merges ... (tools_extra.py)
 _TOOL_SPECS = {t["function"]["name"]: t["function"]["parameters"] for t in TOOLS}
 
 
@@ -184,7 +192,7 @@ def _normalize_args(tool_name: str, args: dict) -> dict | str:
 
 async def execute_tool(name: str, args: dict, db, source: str) -> dict | list | str:
     from models import (Item, Location, Category, FamilyMember, CalendarEvent,
-                        MealPlan, Chore, AuditLog)
+                        MealPlan, Chore, AuditLog, Recipe)
     import msgraph
     from routers.chat import find_or_create_location
 
@@ -338,7 +346,9 @@ async def execute_tool(name: str, args: dict, db, source: str) -> dict | list | 
             if count:
                 return f"Can't delete {path_str(loc)}: {count} item(s) are stored in it. Move them first."
             label = path_str(loc)
-            db.query(Location).filter(Location.parent_id == loc.id).update({Location.parent_id: loc.parent_id})
+            for child in db.query(Location).filter(Location.parent_id == loc.id).all():   # per object, so Undo sees it
+                child.parent_id = loc.parent_id
+            db.flush()   # move the children out first, or deleting the parent would null their link
             db.delete(loc); db.commit()
             return f"Deleted {label}."
 
@@ -511,7 +521,10 @@ async def execute_tool(name: str, args: dict, db, source: str) -> dict | list | 
             meal_type = (args.get("meal_type") or "dinner").lower()
             if meal_type not in ("breakfast", "lunch", "dinner", "snack"):
                 meal_type = "dinner"
-            meal = MealPlan(date=d, meal_type=meal_type, title=args["title"])
+            from routers import recipes as _rx
+            linked = _rx.live_recipes(db).filter(Recipe.title.ilike(args["title"].strip())).first()
+            meal = MealPlan(date=d, meal_type=meal_type, title=linked.title if linked else args["title"],
+                            recipe_id=linked.id if linked else None)
             db.add(meal); db.commit()
             return f"Planned {meal.title} for {meal_type} on {d.strftime('%A %b %d')}."
 
@@ -531,6 +544,9 @@ async def execute_tool(name: str, args: dict, db, source: str) -> dict | list | 
 
         if name in ("find_recipes", "get_recipe", "save_recipe", "import_recipe_url", "plan_recipe", "delete_recipe"):
             return await _recipe_tool(name, args, db, source)
+
+        if name in EXTRA_NAMES:
+            return await run_extra(name, args, db, source)
 
         return f"Unknown tool: {name}"
 
@@ -718,12 +734,16 @@ async def _agent_with(provider: str, user_message: str, db, source: str, system:
     return await _agent_ollama(messages, host, model, db, source)
 
 
-async def run_agent(user_message: str, db=None, source: str = "chat", context: str = "") -> str | None:
+async def run_agent(user_message: str, db=None, source: str = "chat", context: str = "",
+                     history: list[dict] | None = None) -> str | None:
     """Run the tool loop on Emerald's primary brain, falling back to the backup.
     Returns the final reply text, or None when no brain produced an answer."""
     from llm import with_fallback, brain_chain
     if not brain_chain(db):
         return None
+    if history:
+        from routers.chat import history_text
+        context = (context or "") + "\n\nRecent conversation (oldest first; the new message continues it):\n" + history_text(history)
     system = _system_prompt(context)
     try:
         return await with_fallback(db, lambda p: _agent_with(p, user_message, db, source, system))

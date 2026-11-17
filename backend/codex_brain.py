@@ -64,19 +64,23 @@ def _base_args(model: str | None, effort: str | None, workdir: str) -> list[str]
 
 
 def _bridge_args(source: str, call_log: str) -> list[str]:
+    import changes
+    cs_id = changes.current_id()
+    cs_env = f", HOMEHUB_CHANGESET={_toml(str(cs_id))}" if cs_id else ""
     return [
         "-c", f"mcp_servers.homehub.command={_toml(sys.executable)}",
         "-c", f"mcp_servers.homehub.args={_toml([os.path.join(BACKEND_DIR, 'mcp_tools.py')])}",
         "-c", f"mcp_servers.homehub.cwd={_toml(BACKEND_DIR)}",
         "-c", 'mcp_servers.homehub.default_tools_approval_mode="approve"',
         "-c", "mcp_servers.homehub.tool_timeout_sec=60",
-        "-c", f"mcp_servers.homehub.env={{HOMEHUB_SOURCE={_toml(source)}, HOMEHUB_CALL_LOG={_toml(call_log)}, PYTHONPATH={_toml(BACKEND_DIR)}}}",
+        "-c", f"mcp_servers.homehub.env={{HOMEHUB_SOURCE={_toml(source)}, HOMEHUB_CALL_LOG={_toml(call_log)}{cs_env}, PYTHONPATH={_toml(BACKEND_DIR)}}}",
         "-c", f"mcp_servers.homehub.env_vars={_toml([v for v in BRIDGE_ENV_VARS if v in os.environ])}",
     ]
 
 
 async def _run(prompt: str, timeout: int, *, model: str | None, effort: str | None,
-               schema: dict | None = None, source: str | None = None) -> str:
+               schema: dict | None = None, source: str | None = None,
+               images: list[str] | None = None) -> str:
     if not await is_signed_in():
         raise CodexError("Codex isn't signed in — connect it in Settings → Emerald.")
     async with _RUN_SLOTS:
@@ -91,6 +95,8 @@ async def _run(prompt: str, timeout: int, *, model: str | None, effort: str | No
             call_log = os.path.join(workdir, "calls.log")
             if source is not None:
                 args += _bridge_args(source, call_log)
+            for path in images or []:
+                args += ["-i", path]   # each is followed by another flag, so '-' below stays the prompt
             args += ["-o", out_file, "-"]
 
             proc = await asyncio.create_subprocess_exec(
@@ -140,6 +146,17 @@ def _prompt(instructions: str, message: str) -> str:
 
 async def codex_parse(system: str, message: str, schema: dict, *, model=None, effort=None) -> dict:
     text = await _run(_prompt(system, message), PARSE_TIMEOUT, model=model, effort=effort, schema=schema)
+    try:
+        return json.loads(text)
+    except ValueError:
+        from llm import _extract_json
+        return _extract_json(text)
+
+
+async def codex_vision(system: str, message: str, image_path: str, schema: dict, *, model=None, effort=None) -> dict:
+    """Look at a photo and answer in the shape of `schema`."""
+    text = await _run(_prompt(system, message or "(no message, just the photo)"), CHAT_TIMEOUT + 60,
+                      model=model, effort=effort, schema=schema, images=[image_path])
     try:
         return json.loads(text)
     except ValueError:
