@@ -957,7 +957,7 @@ async def handle_action(parsed: dict, req: ChatRequest, db: Session) -> dict:
             person = parsed.get("person") or credited_person(db, req.source)
             db.add(ChoreCompletion(chore_id=chore.id, completed_by=person or chore.assigned_to))
             db.commit()
-            who = person or chore.assigned_to or "someone"
+            who = person or chore.assigned_to
             reply = f"🎉 Nice work! Checked off **{chore.title}**" + (f" for {who}." if who else ".")
         else:
             reply = f"🤔 I couldn't find a chore matching **{item_name}** on the chart."
