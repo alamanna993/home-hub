@@ -40,11 +40,14 @@ def fetch_runtime_settings() -> dict:
     return r.json()
 
 
-async def call_backend(path: str, method: str = "GET", json: dict = None) -> dict:
+async def call_backend(path: str, method: str = "GET", json: dict = None, files: dict = None, data: dict = None) -> dict:
     headers = {"X-API-Key": INTERNAL_API_KEY} if INTERNAL_API_KEY else {}
-    async with httpx.AsyncClient(timeout=180.0, headers=headers) as client:
+    async with httpx.AsyncClient(timeout=300.0, headers=headers) as client:
         if method == "POST":
-            r = await client.post(f"{BACKEND_URL}{path}", json=json)
+            if files is not None:
+                r = await client.post(f"{BACKEND_URL}{path}", files=files, data=data)
+            else:
+                r = await client.post(f"{BACKEND_URL}{path}", json=json)
         else:
             r = await client.get(f"{BACKEND_URL}{path}")
         r.raise_for_status()
@@ -85,7 +88,10 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• added 2 boxes of pasta to pantry\n"
         "• we're out of milk\n"
         "• what can I make for dinner tonight?\n"
-        "• save this recipe: …\n\n"
+        "• put eggs on the shopping list\n"
+        "• save this recipe: … (or just send a recipe link)\n"
+        "• send a photo of a recipe card, a receipt or a shelf\n\n"
+        "After I change something there's an ↩️ Undo button.\n"
         "Commands: /stats /lowstock /find <name> /help\n\n"
         f"(This chat ID: `{update.effective_chat.id}`)",
         parse_mode=ParseMode.MARKDOWN,
@@ -150,16 +156,28 @@ def chat_source(update: Update) -> str:
     return f"telegram:{update.effective_user.first_name if update.effective_user else 'unknown'}"
 
 
-def pending_keyboard(pending: dict) -> InlineKeyboardMarkup | None:
-    """Tappable location buttons for a 'where should I put that?' question."""
-    options = pending.get("options") or []
-    if not options:
-        return None
-    # callback_data is capped at 64 bytes — send the option index, not the name
-    buttons = [InlineKeyboardButton(opt, callback_data=f"clarify|{pending['id']}|{i}")
-               for i, opt in enumerate(options)]
-    rows = [buttons[i:i + 2] for i in range(0, len(buttons), 2)]
-    return InlineKeyboardMarkup(rows)
+def pending_keyboard(pending: dict | None, changes: dict | None = None) -> InlineKeyboardMarkup | None:
+    """Tappable buttons: location choices for a 'where should I put that?' question, and Undo for a change."""
+    rows = []
+    options = (pending or {}).get("options") or []
+    if options:
+        # callback_data is capped at 64 bytes — send the option index, not the name
+        buttons = [InlineKeyboardButton(opt, callback_data=f"clarify|{pending['id']}|{i}")
+                   for i, opt in enumerate(options)]
+        rows = [buttons[i:i + 2] for i in range(0, len(buttons), 2)]
+    if changes and changes.get("id") and not changes.get("undone"):
+        rows.append([InlineKeyboardButton("↩️ Undo", callback_data=f"undo|{changes['id']}")])
+    return InlineKeyboardMarkup(rows) if rows else None
+
+
+async def send_result(message, result: dict) -> None:
+    """Send Emerald's reply (with its buttons), falling back to plain text if Markdown trips."""
+    reply = (result.get("reply") or "Sorry, I didn't understand that.").replace("**", "*")  # Telegram bold is *x*
+    keyboard = pending_keyboard(result.get("pending"), result.get("changes"))
+    try:
+        await message.reply_text(reply, parse_mode=ParseMode.MARKDOWN, reply_markup=keyboard)
+    except Exception:
+        await message.reply_text(reply, reply_markup=keyboard)
 
 
 async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -171,16 +189,25 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "message": update.message.text,
             "source": chat_source(update),
         })
-        reply = result.get("reply", "Sorry, I didn't understand that.")
-        # Backend replies use **bold** — Telegram Markdown uses *bold*
-        reply = reply.replace("**", "*")
-        keyboard = pending_keyboard(result["pending"]) if result.get("pending") else None
-        try:
-            await update.message.reply_text(reply, parse_mode=ParseMode.MARKDOWN, reply_markup=keyboard)
-        except Exception:
-            await update.message.reply_text(reply, reply_markup=keyboard)
+        await send_result(update.message, result)
     except Exception as e:
         await update.message.reply_text(f"❌ Something went wrong: {e}")
+
+
+async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """A photo of a recipe card, a receipt or a shelf: Emerald reads it."""
+    if not authorized(update) or not update.message or not update.message.photo:
+        return
+    await update.effective_chat.send_action(ChatAction.TYPING)
+    try:
+        tg_file = await update.message.photo[-1].get_file()   # the largest size
+        blob = bytes(await tg_file.download_as_bytearray())
+        result = await call_backend("/chat/photo", "POST",
+                                    files={"file": ("photo.jpg", blob, "image/jpeg")},
+                                    data={"message": update.message.caption or "", "source": chat_source(update)})
+        await send_result(update.message, result)
+    except Exception as e:
+        await update.message.reply_text(f"❌ I couldn't read that photo: {e}")
 
 
 async def on_clarify_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -196,8 +223,8 @@ async def on_clarify_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "choice_index": int(index),
         })
         reply = result.get("reply", "Done.").replace("**", "*")
-        # A "No" can come back with a fresh question (location buttons) — show it
-        keyboard = pending_keyboard(result["pending"]) if result.get("pending") else None
+        # A "No" can come back with a fresh question (location buttons), and a change can be undone — show both
+        keyboard = pending_keyboard(result.get("pending"), result.get("changes"))
         # Keep the original summary, append the outcome, swap the buttons
         original = query.message.text if query.message else ""
         combined = f"{original}\n{reply}" if original else reply
@@ -210,6 +237,31 @@ async def on_clarify_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(f"❌ Something went wrong: {e}")
         except Exception:
             pass
+
+
+async def on_undo_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not authorized(update):
+        return
+    query = update.callback_query
+    await query.answer()
+    try:
+        change_id = int(query.data.split("|", 1)[1])
+        result = await call_backend(f"/chat/undo/{change_id}", "POST", json={})
+        original = query.message.text if query.message else ""
+        combined = f"{original}\n\n{result.get('reply', '↩️ Undone.')}".replace("**", "*")
+        try:
+            await query.edit_message_text(combined, parse_mode=ParseMode.MARKDOWN)
+        except Exception:
+            await query.edit_message_text(combined)
+    except httpx.HTTPStatusError as e:
+        detail = ""
+        try:
+            detail = e.response.json().get("detail", "")
+        except Exception:
+            pass
+        await query.message.reply_text(f"❌ {detail or 'I could not undo that.'}")
+    except Exception as e:
+        await query.message.reply_text(f"❌ Something went wrong: {e}")
 
 
 def main():
@@ -246,6 +298,8 @@ def main():
     app.add_handler(CommandHandler("lowstock", lowstock_cmd))
     app.add_handler(CommandHandler("find", find_cmd))
     app.add_handler(CallbackQueryHandler(on_clarify_button, pattern=r"^clarify\|"))
+    app.add_handler(CallbackQueryHandler(on_undo_button, pattern=r"^undo\|"))
+    app.add_handler(MessageHandler(filters.PHOTO, on_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
     logger.info("HomeHub Telegram bot starting (polling)...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)

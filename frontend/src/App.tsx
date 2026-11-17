@@ -29,6 +29,7 @@ const Chores = lazy(() => import('./pages/Chores'))
 const Settings = lazy(() => import('./pages/Settings'))
 const Shopping = lazy(() => import('./pages/Shopping'))
 const More = lazy(() => import('./pages/More'))
+const Display = lazy(() => import('./pages/Display'))
 
 function AppLayout() {
   const navigate = useNavigate()
@@ -106,6 +107,11 @@ export default function App() {
           <Route path="/setup" element={
             <ProtectedRoute>
               <Suspense fallback={null}><Setup /></Suspense>
+            </ProtectedRoute>
+          } />
+          <Route path="/display" element={
+            <ProtectedRoute>
+              <Suspense fallback={null}><Display /></Suspense>
             </ProtectedRoute>
           } />
           <Route path="/*" element={

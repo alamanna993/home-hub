@@ -277,7 +277,59 @@ function EmeraldSection({ api }: { api: SettingsApi }) {
           {(backup === 'ollama' || primary === 'ollama') && <OllamaPullSection onPulled={() => setModelRefresh(n => n + 1)} />}
         </div>
       </Panel>
+
+      <BriefingPanel api={api} />
     </>
+  )
+}
+
+/** The daily Telegram summary: on/off, time, and a way to try it right now. */
+function BriefingPanel({ api }: { api: SettingsApi }) {
+  const enabled = (api.settings.briefing_enabled?.value || 'true') !== 'false'
+  const time = api.settings.briefing_time?.value || '07:00'
+  const [sending, setSending] = useState(false)
+  const [preview, setPreview] = useState<string | null>(null)
+  const noTelegram = api.settings.telegram_bot_token && !api.settings.telegram_bot_token.is_set
+
+  async function put(key: string, value: string) {
+    try { await api.save(key, value) } catch (e) { toast.error(errorText(e, "Couldn't save")) }
+  }
+
+  async function sendNow() {
+    setSending(true)
+    try {
+      const { data } = await axios.post<{ ok?: boolean; error?: string; text: string }>('/api/settings/briefing/test')
+      setPreview(data.text)
+      if (data.error) toast.error(data.error)
+      else toast.success('Sent to Telegram')
+    } catch (e) { toast.error(errorText(e, "Couldn't send the briefing")) }
+    finally { setSending(false) }
+  }
+
+  async function show() {
+    try { setPreview((await axios.get<{ text: string }>('/api/settings/briefing/preview')).data.text) }
+    catch (e) { toast.error(errorText(e)) }
+  }
+
+  return (
+    <Panel title="Morning briefing" description="A short summary of the day, sent to the family on Telegram: events, dinner, chores, food that expires soon, what's running low.">
+      <div className="space-y-4">
+        <label className="flex min-h-11 cursor-pointer items-center gap-3">
+          <input type="checkbox" checked={enabled} onChange={e => put('briefing_enabled', e.target.checked ? 'true' : 'false')}
+            className="h-5 w-5 accent-[rgb(var(--action))]" />
+          <span className="text-sm text-ink">Send it every morning</span>
+        </label>
+        <Field label="Send at" hint="Family time (the server clock is set to Eastern).">
+          <Input type="time" value={time} disabled={!enabled} onChange={e => e.target.value && put('briefing_time', e.target.value)} className="w-40" />
+        </Field>
+        {noTelegram && <p className="text-ui text-warn">Add the Telegram bot token and chat IDs under Chat bots first, or nothing can be sent.</p>}
+        <div className="flex flex-wrap gap-2">
+          <Button variant="primary" icon={Send} loading={sending} onClick={sendNow}>Send a test now</Button>
+          <Button onClick={show}>Preview</Button>
+        </div>
+        {preview && <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-control border border-line bg-canvas p-3 text-ui text-ink">{preview}</pre>}
+      </div>
+    </Panel>
   )
 }
 
