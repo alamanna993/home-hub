@@ -2,11 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import {
-  CalendarPlus, Check, ChefHat, ExternalLink, MoreHorizontal, Pencil, Star, Trash2, X,
+  CalendarPlus, Check, ChefHat, ExternalLink, MoreHorizontal, Pencil, ShoppingCart, Star, Trash2, X,
 } from 'lucide-react'
 import { Badge, Button, EmptyState, IconButton, Menu, Page, PageHeader, Panel, Skeleton } from '../../components/ui'
 import {
-  deleteRecipe, errorText, getRecipe, restoreRecipe, updateRecipe, type PantryLine, type Recipe,
+  deleteRecipe, errorText, getRecipe, mediaUrl, restoreRecipe, shoppingFromRecipe, updateRecipe, type PantryLine, type Recipe,
 } from '../../lib/api'
 import { cn } from '../../lib/utils'
 import { formatMinutes, hostOf, PantryMeter, PlanDialog, servesLabel } from './shared'
@@ -75,6 +75,14 @@ export default function RecipeDetail() {
     }
   }
 
+  async function addMissing() {
+    try {
+      const res = await shoppingFromRecipe(r.id)
+      if (res.added.length) toast.success(`Added ${res.added.length} to the shopping list`)
+      else toast(res.already_on_list ? 'Everything missing is already on the list' : 'You have everything for this one')
+    } catch (e) { toast.error(errorText(e)) }
+  }
+
   async function remove() {
     try {
       await deleteRecipe(r.id)
@@ -122,6 +130,7 @@ export default function RecipeDetail() {
             {cooking ? 'Done cooking' : 'Cook mode'}
           </Button>
           <Button icon={CalendarPlus} onClick={() => setPlanOpen(true)}>Plan as meal</Button>
+          <Button icon={ShoppingCart} onClick={addMissing}>Add missing to list</Button>
           <Button icon={Pencil} onClick={() => navigate(`/recipes/${r.id}/edit`)}>Edit</Button>
           <Menu label="More recipe actions"
             trigger={<IconButton icon={MoreHorizontal} label="More recipe actions" variant="secondary" />}
@@ -182,7 +191,7 @@ export default function RecipeDetail() {
           )}
         </div>
         {r.image_url && !cooking && (
-          <img src={r.image_url} alt="" className="aspect-[4/3] w-full rounded-panel border border-line object-cover lg:w-80"
+          <img src={mediaUrl(r.image_url)} alt="" className="aspect-[4/3] w-full rounded-panel border border-line object-cover max-lg:order-first lg:w-80"
             onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
         )}
       </div>
@@ -201,13 +210,13 @@ export default function RecipeDetail() {
                 <li key={i}>
                   <button type="button" onClick={() => toggle(gotIngredients, setGotIngredients, i)}
                     aria-pressed={gotIngredients.has(i)}
-                    className="flex w-full items-start gap-3 px-4 py-2.5 text-left hover:bg-ink/[0.03]">
-                    <span className={cn('mt-1 flex h-4 w-4 shrink-0 items-center justify-center rounded border',
+                    className="flex min-h-12 w-full items-start gap-3 px-4 py-3 text-left hover:bg-ink/[0.03]">
+                    <span className={cn('mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2',
                       gotIngredients.has(i) ? 'border-action bg-action text-action-on' : 'border-muted/50')}>
-                      {gotIngredients.has(i) && <Check size={12} strokeWidth={3} aria-hidden />}
+                      {gotIngredients.has(i) && <Check size={14} strokeWidth={3} aria-hidden />}
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className={cn('block font-serif text-[16px] leading-6 text-ink', cooking && 'text-[18px] leading-7',
+                      <span className={cn('block font-serif text-[17px] leading-6 text-ink', cooking && 'text-[20px] leading-7',
                         gotIngredients.has(i) && 'text-muted line-through decoration-muted/60')}>
                         {line.text}
                       </span>

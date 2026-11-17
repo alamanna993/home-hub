@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { AlertTriangle, ChevronRight, Edit2, FolderInput, Inbox, MapPin, Minus, PackageCheck, Plus, Search, Trash2, X } from 'lucide-react'
 import {
   getItems, getCategories, getLocations, deleteItem, bulkDeleteItems, bulkMoveItems, useItem as consumeItem, errorText,
-  locationOptionLabel, Item, Category, Location,
+  locationOptionLabel, mediaUrl, Item, Category, Location,
 } from '../lib/api'
 import ItemModal from '../components/ItemModal'
 import {
@@ -246,7 +246,9 @@ export default function Inventory() {
       key: 'name', header: 'Item', sortValue: i => i.name.toLowerCase(),
       cell: i => (
         <div className="flex min-w-0 items-center gap-2.5">
-          <span className="w-5 shrink-0 text-center leading-none" aria-hidden>{i.category?.icon || '📦'}</span>
+          {i.image_url
+            ? <img src={mediaUrl(i.image_url, true)} alt="" loading="lazy" className="h-10 w-10 shrink-0 rounded-control border border-line object-cover" />
+            : <span className="w-5 shrink-0 text-center leading-none" aria-hidden>{i.category?.icon || '📦'}</span>}
           <div className="min-w-0">
             <p className="truncate font-medium text-ink">{i.name}</p>
             {(i.author || i.notes) && <p className="truncate text-xs text-muted">{i.author ? `by ${i.author}` : i.notes}</p>}

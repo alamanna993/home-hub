@@ -25,6 +25,8 @@ export default {
           on: token('on-emerald'),
         },
         warn: token('warn'),
+        // Today, favorites, "needs you" — warm, never the assistant's green
+        honey: token('honey'),
         danger: {
           DEFAULT: token('danger'),
           hover: token('danger-hover'),
@@ -32,23 +34,24 @@ export default {
         surface: token('surface'),
       },
       fontFamily: {
-        sans: ['"IBM Plex Sans"', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
+        sans: ['"Atkinson Hyperlegible Next"', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
         serif: ['"Source Serif 4"', 'Georgia', 'serif'],
       },
-      // Scale: 12 / 13 / 14 (body) / 16 / 20 / 24 / 30
+      // Family scale, sized for a phone in one hand and a tablet across the kitchen:
+      // 13 / 14 / 16 (body) / 17 / 20 / 24 / 30
       fontSize: {
-        xs: ['12px', '16px'],
-        ui: ['13px', '18px'],
-        sm: ['14px', '20px'],
+        xs: ['13px', '18px'],
+        ui: ['14px', '20px'],
+        sm: ['16px', '24px'],
         base: ['16px', '24px'],
-        lg: ['16px', '24px'],
+        lg: ['17px', '26px'],
         xl: ['20px', '28px'],
         '2xl': ['24px', { lineHeight: '32px', letterSpacing: '-0.01em' }],
         '3xl': ['30px', { lineHeight: '36px', letterSpacing: '-0.01em' }],
       },
       borderRadius: {
-        control: '6px',
-        panel: '10px',
+        control: '10px',
+        panel: '16px',
       },
       // Shadows belong to overlays only (menus, dialogs, slide-overs).
       boxShadow: {

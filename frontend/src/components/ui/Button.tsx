@@ -22,8 +22,8 @@ export const buttonVariants: Record<ButtonVariant, string> = {
 }
 
 const sizes: Record<ButtonSize, string> = {
-  sm: 'h-8 px-2.5 text-ui gap-1.5',
-  md: 'h-10 lg:h-9 px-3.5 text-sm gap-2',
+  sm: 'h-9 lg:h-8 px-3 text-ui gap-1.5',
+  md: 'h-11 lg:h-10 px-4 text-sm gap-2',
 }
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
@@ -72,7 +72,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
         'inline-flex shrink-0 items-center justify-center rounded-control text-muted transition-colors duration-100',
         'hover:text-ink disabled:pointer-events-none disabled:opacity-50',
         variant === 'ghost' ? 'hover:bg-ink/[0.06]' : 'border border-line bg-surface hover:bg-ink/[0.04]',
-        size === 'sm' ? 'h-8 w-8' : 'h-10 w-10 lg:h-9 lg:w-9',
+        size === 'sm' ? 'h-9 w-9 lg:h-8 lg:w-8' : 'h-11 w-11 lg:h-10 lg:w-10',
         className,
       )}
       {...rest}

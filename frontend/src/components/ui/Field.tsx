@@ -53,13 +53,13 @@ export const controlBase = cn(
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function Input(
   { className, type = 'text', ...rest }, ref,
 ) {
-  return <input ref={ref} type={type} className={cn(controlBase, 'h-10 lg:h-9 px-3', className)} {...rest} />
+  return <input ref={ref} type={type} className={cn(controlBase, 'h-11 lg:h-10 px-3', className)} {...rest} />
 })
 
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement>>(function Textarea(
   { className, rows = 3, ...rest }, ref,
 ) {
-  return <textarea ref={ref} rows={rows} className={cn(controlBase, 'px-3 py-2 leading-5 resize-y', className)} {...rest} />
+  return <textarea ref={ref} rows={rows} className={cn(controlBase, 'px-3 py-2.5 leading-6 resize-y', className)} {...rest} />
 })
 
 export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSelectElement>>(function Select(
@@ -67,7 +67,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSel
 ) {
   return (
     <div className={cn('relative', className)}>
-      <select ref={ref} className={cn(controlBase, 'h-10 lg:h-9 appearance-none pl-3 pr-8')} {...rest}>
+      <select ref={ref} className={cn(controlBase, 'h-11 lg:h-10 appearance-none pl-3 pr-8')} {...rest}>
         {children}
       </select>
       <ChevronDown size={16} aria-hidden className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-muted" />

@@ -44,6 +44,7 @@ export interface Item {
   location?: { id: number; name: string; leaf?: string; room?: string; room_id?: number; path?: string[] }
   category?: { id: number; name: string; icon?: string; color?: string }
   notes?: string; is_low_stock: boolean
+  image_url?: string | null
   expiration_date?: string | null; is_expired?: boolean; expires_soon?: boolean
   /** The opened package: with pack_unit, open_amount counts pieces ("1 bagel");
    *  without it, open_amount is a fraction of the package (0.25). null = nothing open. */
@@ -97,17 +98,43 @@ export interface ChatPending {
   id: string; type: 'location' | 'confirm'; question: string; items: string[]; options: string[]
   placements?: { item: string; location: string | null }[]
 }
+export interface RecipeCard { id: number; title: string; image_url?: string | null }
+/** What one Emerald request changed; `id` is what Undo needs */
+export interface ChangeCard { id: number; count: number; lines: string[]; more: number; undone: boolean; label?: string | null }
+export interface ChatOpen { label: string; path: string }
 export interface ChatResponse {
   reply: string; action: string; brain?: ChatBrain | null; pending?: ChatPending | null
   /** Recipes Emerald saved from the message (`recipe` is set when there's exactly one) */
-  recipes?: { id: number; title: string }[] | null
-  recipe?: { id: number; title: string } | null
+  recipes?: RecipeCard[] | null
+  recipe?: RecipeCard | null
+  changes?: ChangeCard | null
+  open?: ChatOpen[] | null
 }
 
 const CHAT_SOURCE = 'dashboard'
 
-export const chat = (message: string) =>
-  api.post<ChatResponse>('/chat/', { message, source: CHAT_SOURCE }).then(r => r.data)
+/** Where in the app the person is, so "this recipe" and "what's in here" make sense */
+export interface ChatContext { path: string; recipe_id?: number; location_id?: number }
+
+export const chat = (message: string, context?: ChatContext) =>
+  api.post<ChatResponse>('/chat/', { message, source: CHAT_SOURCE, context }).then(r => r.data)
+
+export const chatPhoto = (file: File | Blob, message = '') => {
+  const form = new FormData()
+  form.append('file', file, (file as File).name || 'photo.jpg')
+  form.append('message', message)
+  form.append('source', CHAT_SOURCE)
+  return api.post<ChatResponse>('/chat/photo', form, { timeout: 300000 }).then(r => r.data)
+}
+
+export interface ChatHistoryRow {
+  id: number; role: 'user' | 'emerald'; text: string; created_at: string
+  meta?: (Partial<ChatResponse> & { image?: string }) | null
+}
+export const getChatHistory = () => api.get<ChatHistoryRow[]>('/chat/history').then(r => r.data)
+export const clearChatHistory = () => api.delete('/chat/history').then(r => r.data)
+export const undoChanges = (id: number) =>
+  api.post<{ ok: boolean; reply: string; changes: ChangeCard }>(`/chat/undo/${id}`).then(r => r.data)
 
 export const clarifyChat = (pendingId: string, choice: string) =>
   api.post<ChatResponse>('/chat/clarify', { source: CHAT_SOURCE, pending_id: pendingId, choice }).then(r => r.data)
@@ -231,14 +258,14 @@ export const deleteChore = (id: number) =>
   api.delete(`/chores/${id}`).then(r => r.data)
 
 // ---- Family ----
-export interface FamilyMember { id: number; name: string; icon?: string; color?: string }
+export interface FamilyMember { id: number; name: string; icon?: string; color?: string; photo_url?: string | null }
 
 export const getFamily = () => api.get<FamilyMember[]>('/family/').then(r => r.data)
 
-export const createFamilyMember = (data: { name: string; icon?: string; color?: string }) =>
+export const createFamilyMember = (data: { name: string; icon?: string; color?: string; photo_url?: string | null }) =>
   api.post<FamilyMember>('/family/', data).then(r => r.data)
 
-export const updateFamilyMember = (id: number, data: { name?: string; icon?: string; color?: string }) =>
+export const updateFamilyMember = (id: number, data: { name?: string; icon?: string; color?: string; photo_url?: string | null }) =>
   api.patch<FamilyMember>(`/family/${id}`, data).then(r => r.data)
 
 export const deleteFamilyMember = (id: number) =>
@@ -293,6 +320,45 @@ export const importRecipe = (data: { url?: string; text?: string }) =>
   api.post<RecipeDraft>('/recipes/import', data).then(r => r.data)
 export const planRecipe = (id: number, date: string, meal_type: MealType) =>
   api.post<Meal>(`/recipes/${id}/plan`, { date, meal_type }).then(r => r.data)
+
+// ---- Photos ----
+/** Stored photos come back as /media/<name>.jpg; the app reaches them through the /api proxy.
+ *  Anything else (an old remote link, a data URL) is used as it is. */
+export function mediaUrl(url?: string | null, thumb = false) {
+  if (!url) return undefined
+  if (!url.startsWith('/media/')) return url
+  return '/api' + (thumb ? url.replace(/\.jpg$/, '_t.jpg') : url)
+}
+
+export const uploadPhoto = (file: Blob, name = 'photo.jpg') => {
+  const form = new FormData()
+  form.append('file', file, name)
+  return api.post<{ url: string }>('/media/upload', form, { timeout: 120000 }).then(r => r.data.url)
+}
+export const photoFromLink = (url: string) =>
+  api.post<{ url: string }>('/media/from-url', { url }).then(r => r.data.url)
+
+// ---- Shopping ----
+export interface ShoppingLine {
+  id: number; name: string; amount?: string | null; note?: string | null
+  source: string; item_id?: number | null; recipe_id?: number | null
+  added_by?: string | null; checked: boolean; created_at?: string | null
+}
+export interface ShoppingSuggestion { item_id: number; name: string; quantity?: number | null; unit?: string | null; open_label?: string | null }
+
+export const getShopping = () => api.get<ShoppingLine[]>('/shopping/').then(r => r.data)
+export const getShoppingSuggestions = () => api.get<ShoppingSuggestion[]>('/shopping/suggestions').then(r => r.data)
+export const addShopping = (data: { name: string; amount?: string; note?: string; item_id?: number }) =>
+  api.post<ShoppingLine & { already_on_list: boolean }>('/shopping/', data).then(r => r.data)
+export const updateShopping = (id: number, data: { name?: string; amount?: string; note?: string }) =>
+  api.patch<ShoppingLine>(`/shopping/${id}`, data).then(r => r.data)
+export const checkShopping = (id: number, checked: boolean) =>
+  api.post<ShoppingLine>(`/shopping/${id}/check`, { checked }).then(r => r.data)
+export const deleteShopping = (id: number) => api.delete(`/shopping/${id}`).then(r => r.data)
+export const shoppingFromRecipe = (recipeId: number) =>
+  api.post<{ added: string[]; already_on_list: number }>(`/shopping/from-recipe/${recipeId}`).then(r => r.data)
+export const doneShopping = (inventory_ids: number[]) =>
+  api.post<{ ok: boolean; cleared: number; restocked: string[]; created: string[] }>('/shopping/done', { inventory_ids }).then(r => r.data)
 
 /** The server's error message, for toasts */
 export const errorText = (e: unknown, fallback = 'Something went wrong') => {

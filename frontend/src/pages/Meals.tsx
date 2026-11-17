@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { BookOpen, ChevronLeft, ChevronRight, Plus, X } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { getMeals, createMeal, deleteMeal, getRecipes, errorText, Meal, MealType, Recipe } from '../lib/api'
+import { getMeals, createMeal, deleteMeal, getRecipes, errorText, mediaUrl, Meal, MealType, Recipe } from '../lib/api'
 import { Button, Dialog, Field, IconButton, Input, Page, PageHeader, Select } from '../components/ui'
 import { EmeraldMark } from '../components/EmeraldMark'
 import { useEmeraldChat } from '../hooks/useEmeraldChat'
@@ -79,9 +79,13 @@ export default function Meals() {
   const weekLabel = `${days[0].toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} to ${days[6].toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
   const isThisWeek = ymd(weekStart) === ymd(mondayOf(new Date()))
 
+  const photoOf = (recipeId: number) => mediaUrl(recipes.find(r => r.id === recipeId)?.image_url, true)
+
   const MealChip = ({ m, compact }: { m: Meal; compact?: boolean }) => (
     <div className="group relative flex items-start gap-1.5 rounded-control border border-line bg-canvas px-2 py-1.5">
-      {m.recipe_id && <BookOpen size={12} className="mt-0.5 shrink-0 text-action" aria-label="Saved recipe" />}
+      {m.recipe_id && (photoOf(m.recipe_id)
+        ? <img src={photoOf(m.recipe_id)} alt="" loading="lazy" className="h-10 w-10 shrink-0 rounded-md object-cover" />
+        : <BookOpen size={12} className="mt-0.5 shrink-0 text-action" aria-label="Saved recipe" />)}
       <div className="min-w-0 flex-1">
         {m.recipe_id
           ? <Link to={`/recipes/${m.recipe_id}`} className={cn('block font-medium leading-tight text-ink hover:underline', compact ? 'text-ui' : 'text-sm')}>{m.title}</Link>

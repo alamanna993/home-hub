@@ -7,6 +7,8 @@ import {
   errorText,
 } from '../lib/api'
 import EmojiPicker from '../components/EmojiPicker'
+import PhotoPicker from '../components/PhotoPicker'
+import PersonAvatar from '../components/PersonAvatar'
 import {
   Badge, Button, ConfirmDialog, Dialog, EmptyState, Field, IconButton, Input, Menu, Page, PageHeader, Panel, Select, Tabs,
 } from '../components/ui'
@@ -36,7 +38,7 @@ export default function Chores() {
 
   // Family member dialog: null = closed, 'new' = adding
   const [memberDialog, setMemberDialog] = useState<FamilyMember | 'new' | null>(null)
-  const [memberForm, setMemberForm] = useState({ name: '', icon: '🙂' })
+  const [memberForm, setMemberForm] = useState<{ name: string; icon: string; photo_url: string | null }>({ name: '', icon: '🙂', photo_url: null })
   const [removingMember, setRemovingMember] = useState<FamilyMember | null>(null)
 
   const load = () => {
@@ -110,8 +112,9 @@ export default function Chores() {
   async function saveMember() {
     if (!memberForm.name.trim()) { toast.error('Enter a name'); return }
     try {
-      if (memberDialog === 'new') await createFamilyMember({ name: memberForm.name.trim(), icon: memberForm.icon })
-      else if (memberDialog) await updateFamilyMember(memberDialog.id, { name: memberForm.name.trim(), icon: memberForm.icon })
+      const body = { name: memberForm.name.trim(), icon: memberForm.icon, photo_url: memberForm.photo_url ?? '' }
+      if (memberDialog === 'new') await createFamilyMember(body)
+      else if (memberDialog) await updateFamilyMember(memberDialog.id, body)
       toast.success(memberDialog === 'new' ? `Added ${memberForm.name.trim()}` : 'Saved')
       setMemberDialog(null); load()
     } catch (e) { toast.error(errorText(e, "Couldn't save that person")) }
@@ -124,7 +127,7 @@ export default function Chores() {
     return Object.entries(map).sort(([a], [b]) => a === 'Anyone' ? 1 : b === 'Anyone' ? -1 : a.localeCompare(b))
   }, [chores, members])
 
-  const memberIcon = (name: string) => members.find(m => m.name === name)?.icon
+  const memberOf = (name: string) => members.find(m => m.name === name)
   const doneCount = chores.filter(c => c.done_this_period).length
   const weekly = form.frequency === 'weekly' || form.frequency === 'biweekly'
 
@@ -132,7 +135,7 @@ export default function Chores() {
     <Page>
       <PageHeader title="Chores" description={chores.length ? `${doneCount} of ${chores.length} done this period` : 'Who does what, checked off as it gets done.'}
         actions={<>
-          <Button icon={UserPlus} onClick={() => { setMemberForm({ name: '', icon: '🙂' }); setMemberDialog('new') }}>Add person</Button>
+          <Button icon={UserPlus} onClick={() => { setMemberForm({ name: '', icon: '🙂', photo_url: null }); setMemberDialog('new') }}>Add person</Button>
           <Button variant="primary" icon={Plus} onClick={() => openNew()}>Add chore</Button>
         </>} />
 
@@ -141,12 +144,12 @@ export default function Chores() {
           {members.map(m => (
             <Menu key={m.id} label={`${m.name} options`}
               trigger={
-                <button type="button" className="flex h-8 items-center gap-1.5 rounded-full border border-line bg-surface pl-2 pr-3 text-ui text-ink hover:border-muted/50">
-                  <span aria-hidden>{m.icon || '🙂'}</span>{m.name}
+                <button type="button" className="flex h-11 items-center gap-2 rounded-full border border-line bg-surface pl-1.5 pr-4 text-sm text-ink hover:border-muted/50">
+                  <PersonAvatar name={m.name} icon={m.icon} photo={m.photo_url} size={32} />{m.name}
                 </button>
               }
               items={[
-                { label: 'Edit', icon: Pencil, onSelect: () => { setMemberForm({ name: m.name, icon: m.icon || '🙂' }); setMemberDialog(m) } },
+                { label: 'Edit', icon: Pencil, onSelect: () => { setMemberForm({ name: m.name, icon: m.icon || '🙂', photo_url: m.photo_url ?? null }); setMemberDialog(m) } },
                 { label: `Add a chore for ${m.name}`, icon: Plus, onSelect: () => openNew(m.name) },
                 { separator: true },
                 { label: 'Remove from family', icon: X, danger: true, onSelect: () => setRemovingMember(m) },
@@ -160,7 +163,7 @@ export default function Chores() {
           <EmptyState icon={ClipboardList} title="No chores yet"
             description="Add the people in the house, then give everyone their chores. Emerald can add chores from chat too."
             action={<>
-              <Button icon={UserPlus} onClick={() => { setMemberForm({ name: '', icon: '🙂' }); setMemberDialog('new') }}>Add person</Button>
+              <Button icon={UserPlus} onClick={() => { setMemberForm({ name: '', icon: '🙂', photo_url: null }); setMemberDialog('new') }}>Add person</Button>
               <Button variant="primary" icon={Plus} onClick={() => openNew()}>Add chore</Button>
             </>} />
         </Panel>
@@ -170,7 +173,7 @@ export default function Chores() {
             const done = personChores.filter(c => c.done_this_period).length
             return (
               <Panel key={name} padded={false}
-                title={<span className="flex items-center gap-2">{memberIcon(name) && <span aria-hidden>{memberIcon(name)}</span>}{name}</span>}
+                title={<span className="flex items-center gap-2.5">{memberOf(name) && <PersonAvatar name={name} icon={memberOf(name)!.icon} photo={memberOf(name)!.photo_url} size={30} />}{name}</span>}
                 actions={personChores.length > 0
                   ? <Badge tone={done === personChores.length ? 'action' : 'neutral'}>{done} of {personChores.length} done</Badge>
                   : <Button size="sm" variant="ghost" icon={Plus} onClick={() => openNew(name === 'Anyone' ? '' : name)}>Add chore</Button>}>
@@ -184,7 +187,7 @@ export default function Chores() {
                         <li key={chore.id} className="group flex items-center gap-3 px-4 py-2.5">
                           <button type="button" onClick={() => toggle(chore)} aria-pressed={isDone}
                             aria-label={isDone ? `Undo ${chore.title}` : `Mark ${chore.title} done`}
-                            className={cn('flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 transition-colors',
+                            className={cn('relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 transition-colors before:absolute before:-inset-2.5 before:content-[\'\']',
                               isDone ? 'border-action bg-action text-action-on' : 'border-muted/50 hover:border-action')}>
                             {isDone && <Check size={14} strokeWidth={3} aria-hidden />}
                           </button>
@@ -335,14 +338,18 @@ export default function Chores() {
           <Button variant="ghost" onClick={() => setMemberDialog(null)}>Cancel</Button>
           <Button variant="primary" onClick={saveMember}>{memberDialog === 'new' ? 'Add person' : 'Save changes'}</Button>
         </>}>
-        <form className="flex items-end gap-3" onSubmit={e => { e.preventDefault(); saveMember() }}>
-          <div className="flex flex-col gap-1.5">
-            <span className="text-ui font-medium text-ink">Icon</span>
-            <EmojiPicker value={memberForm.icon} onChange={v => setMemberForm(f => ({ ...f, icon: v }))} />
+        <form className="space-y-4" onSubmit={e => { e.preventDefault(); saveMember() }}>
+          <div className="flex items-end gap-3">
+            <div className="flex flex-col gap-1.5">
+              <span className="text-ui font-medium text-ink">Icon</span>
+              <EmojiPicker value={memberForm.icon} onChange={v => setMemberForm(f => ({ ...f, icon: v }))} />
+            </div>
+            <Field label="Name" required className="flex-1">
+              <Input autoFocus value={memberForm.name} onChange={e => setMemberForm(f => ({ ...f, name: e.target.value }))} />
+            </Field>
           </div>
-          <Field label="Name" required className="flex-1">
-            <Input autoFocus value={memberForm.name} onChange={e => setMemberForm(f => ({ ...f, name: e.target.value }))} />
-          </Field>
+          <PhotoPicker shape="round" label="Photo (optional)" value={memberForm.photo_url}
+            onChange={url => setMemberForm(f => ({ ...f, photo_url: url }))} />
           <button type="submit" hidden />
         </form>
       </Dialog>

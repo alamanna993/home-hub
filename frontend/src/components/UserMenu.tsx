@@ -31,8 +31,8 @@ export default function UserMenu({ compact }: { compact?: boolean }) {
           type="button"
           aria-label={`Account: ${name}`}
           className={cn(
-            'flex h-10 lg:h-9 items-center gap-2 rounded-control text-sm text-ink hover:bg-ink/[0.06]',
-            compact ? 'w-10 justify-center' : 'pl-1 pr-2',
+            'flex h-11 md:h-10 items-center gap-2 rounded-control text-sm text-ink hover:bg-ink/[0.06]',
+            compact ? 'w-11 justify-center' : 'pl-1 pr-2',
           )}
         >
           <span className="flex h-7 w-7 items-center justify-center rounded-full bg-action/10 text-xs font-semibold text-action">

@@ -55,7 +55,7 @@ export function Tabs<T extends string>({ tabs, value, onChange, label, className
             onClick={() => onChange(t.id)}
             onKeyDown={e => onKeyDown(e, i)}
             className={cn(
-              '-mb-px flex h-10 shrink-0 items-center gap-1.5 border-b-2 text-sm font-medium transition-colors',
+              '-mb-px flex h-11 shrink-0 items-center gap-1.5 border-b-2 text-sm font-medium transition-colors',
               active ? 'border-action text-ink' : 'border-transparent text-muted hover:text-ink',
               'disabled:opacity-50',
             )}

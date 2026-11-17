@@ -5,6 +5,7 @@ import { X } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { IconButton } from './Button'
 import { useModalFocus } from './overlay'
+import { useMedia } from '../../hooks/useMedia'
 
 export interface SlideOverProps {
   open: boolean
@@ -32,6 +33,8 @@ export function SlideOver({
   const ref = useRef<HTMLDivElement>(null)
   const titleId = useId()
   useModalFocus(open, ref, onClose, initialFocus)
+  // Phones get a bottom sheet (thumb reach); tablets and desktops a side panel
+  const wide = useMedia('(min-width: 768px)')
 
   return createPortal(
     <AnimatePresence>
@@ -49,19 +52,24 @@ export function SlideOver({
             aria-modal="true"
             aria-labelledby={titleId}
             tabIndex={-1}
-            style={{ maxWidth: width }}
+            style={wide ? { maxWidth: width } : undefined}
             className={cn(
-              'absolute inset-y-0 right-0 flex w-full flex-col border-l border-line bg-surface shadow-overlay focus:outline-none',
-              'pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]',
+              'absolute flex w-full flex-col bg-surface shadow-overlay focus:outline-none',
+              wide
+                ? 'inset-y-0 right-0 border-l border-line pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]'
+                : 'inset-x-0 bottom-0 h-[92dvh] rounded-t-[20px] border-t border-line pb-[env(safe-area-inset-bottom)]',
               className,
             )}
-            initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
-            transition={{ type: 'tween', duration: 0.2, ease: 'easeOut' }}
+            initial={wide ? { x: '100%' } : { y: '100%' }}
+            animate={wide ? { x: 0 } : { y: 0 }}
+            exit={wide ? { x: '100%' } : { y: '100%' }}
+            transition={{ type: 'tween', duration: 0.22, ease: 'easeOut' }}
           >
+            {!wide && <div aria-hidden className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-line" />}
             <header className="flex h-14 shrink-0 items-center gap-2.5 border-b border-line pl-4 pr-2">
               {icon}
               <div className="min-w-0 flex-1">
-                <h2 id={titleId} className="truncate text-sm font-semibold text-ink">{title}</h2>
+                <h2 id={titleId} className="truncate text-base font-semibold text-ink">{title}</h2>
                 {description && <div className="truncate text-xs text-muted">{description}</div>}
               </div>
               {headerActions}

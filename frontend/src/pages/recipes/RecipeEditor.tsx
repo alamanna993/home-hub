@@ -6,6 +6,7 @@ import {
   Badge, Button, Field, IconButton, Input, Page, PageHeader, Panel, Skeleton, Tabs, Textarea,
 } from '../../components/ui'
 import { EmeraldMark } from '../../components/EmeraldMark'
+import PhotoPicker from '../../components/PhotoPicker'
 import {
   createRecipe, errorText, getRecipe, importRecipe, updateRecipe, type RecipeDraft,
 } from '../../lib/api'
@@ -186,20 +187,16 @@ export default function RecipeEditor() {
               <Textarea rows={3} value={draft.notes || ''} onChange={e => set('notes', e.target.value)}
                 placeholder="Double the garlic. Sam likes it without peas." />
             </Field>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Photo link">
-                <Input type="url" value={draft.image_url || ''} onChange={e => set('image_url', e.target.value)} placeholder="https://" />
-              </Field>
-              <Field label="Source link">
-                <Input type="url" value={draft.source_url || ''} onChange={e => set('source_url', e.target.value)} placeholder="https://" />
-              </Field>
-            </div>
+            <PhotoPicker value={draft.image_url} onChange={url => set('image_url', url ?? '')} label="Photo" />
+            <Field label="Source link">
+              <Input type="url" value={draft.source_url || ''} onChange={e => set('source_url', e.target.value)} placeholder="https://" />
+            </Field>
           </div>
         </Panel>
       </div>
 
       {/* Sticky save bar */}
-      <div className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:left-[60px] xl:left-60">
+      <div className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-20 border-t border-line bg-surface/95 backdrop-blur md:bottom-0 md:left-[68px] md:pb-[env(safe-area-inset-bottom)] xl:left-64">
         <div className="flex max-w-[calc(48rem+4rem)] items-center justify-end gap-2 px-4 py-3 lg:px-8">
           <Button variant="ghost" onClick={() => navigate(editing ? `/recipes/${id}` : '/recipes')}>Cancel</Button>
           <Button variant="primary" loading={saving} onClick={save}>{editing ? 'Save changes' : 'Save recipe'}</Button>

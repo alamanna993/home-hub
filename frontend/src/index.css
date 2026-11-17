@@ -7,14 +7,15 @@
    inline script in index.html) switches to dark. */
 @layer base {
   :root {
-    --canvas: 243 245 247;       /* #F3F5F7 */
-    --surface: 255 255 255;      /* #FFFFFF */
-    --ink: 24 32 43;             /* #18202B */
-    --muted: 90 101 117;         /* #5A6575 */
-    --line: 220 225 232;         /* #DCE1E8 */
-    --action: 43 76 126;         /* #2B4C7E ledger blue */
-    --action-hover: 34 61 102;   /* #223D66 */
+    --canvas: 238 235 230;       /* #EEEBE6 warm linen */
+    --surface: 250 248 245;      /* #FAF8F5 soft off-white, never pure white */
+    --ink: 37 40 45;             /* #25282D */
+    --muted: 98 102 109;         /* #62666D */
+    --line: 220 216 209;         /* #DCD8D1 */
+    --action: 61 90 128;         /* #3D5A80 dusk blue */
+    --action-hover: 48 73 105;   /* #304969 */
     --on-action: 255 255 255;
+    --honey: 168 112 26;         /* #A8701A */
     --emerald: 11 122 90;        /* #0B7A5A — Emerald only */
     --on-emerald: 255 255 255;
     --warn: 178 107 0;           /* #B26B00 */
@@ -25,14 +26,15 @@
   }
 
   .dark {
-    --canvas: 14 19 25;          /* #0E1319 */
-    --surface: 21 27 35;         /* #151B23 */
-    --ink: 230 234 240;          /* #E6EAF0 */
-    --muted: 140 151 168;        /* #8C97A8 */
-    --line: 38 48 64;            /* #263040 */
-    --action: 127 163 217;       /* #7FA3D9 */
-    --action-hover: 155 184 227; /* #9BB8E3 */
-    --on-action: 14 19 25;
+    --canvas: 23 25 28;          /* #17191C */
+    --surface: 31 34 38;         /* #1F2226 */
+    --ink: 231 228 223;          /* #E7E4DF */
+    --muted: 154 156 161;        /* #9A9CA1 */
+    --line: 48 52 58;            /* #30343A */
+    --action: 143 175 214;       /* #8FAFD6 */
+    --action-hover: 169 195 226; /* #A9C3E2 */
+    --on-action: 23 25 28;
+    --honey: 224 169 79;         /* #E0A94F */
     --emerald: 52 199 150;       /* #34C796 */
     --on-emerald: 14 19 25;
     --warn: 229 161 58;          /* #E5A13A — lifted for contrast on dark */
@@ -47,8 +49,9 @@
   body {
     background: rgb(var(--canvas));
     color: rgb(var(--ink));
-    font-size: 14px;
-    line-height: 20px;
+    font-size: 16px;
+    line-height: 24px;
+    -webkit-tap-highlight-color: transparent;
   }
 
   /* One visible focus ring for every focusable element, keyboard only */

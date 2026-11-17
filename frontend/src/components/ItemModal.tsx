@@ -3,6 +3,7 @@ import { Button, Dialog, Field, Input, Select, Tabs, Textarea } from './ui'
 import { cn, utcDate } from '../lib/utils'
 import { Item, Category, Location, createItem, updateItem, createLocation, createCategory, locationOptionLabel } from '../lib/api'
 import toast from 'react-hot-toast'
+import PhotoPicker from './PhotoPicker'
 
 const NEW = '__new__'
 
@@ -19,6 +20,7 @@ export default function ItemModal({ item, categories, locations, onClose, onSave
     name: '', quantity: '', unit: '', notes: '', author: '', expiration_date: '',
     track_stock: false, low_stock_threshold: '', location_id: '', category_id: '',
   })
+  const [photo, setPhoto] = useState<string | null>(item?.image_url ?? null)
   const [newLoc, setNewLoc] = useState({ name: '', parent: '' })
   const [newCat, setNewCat] = useState('')
   const [saving, setSaving] = useState(false)
@@ -36,6 +38,7 @@ export default function ItemModal({ item, categories, locations, onClose, onSave
         category_id: String(item.category?.id ?? ''),
       })
       setOpen(openStateOf(item))
+      setPhoto(item.image_url ?? null)
     }
   }, [item])
 
@@ -87,6 +90,7 @@ export default function ItemModal({ item, categories, locations, onClose, onSave
         location_id: locationId ? parseInt(locationId) : undefined,
         category_id: categoryId ? parseInt(categoryId) : undefined,
         expiration_date: form.expiration_date || null,  // explicit null clears a saved date
+        image_url: photo,                               // so does null for the photo
         ...openPayload(open),
       }
       if (item) await updateItem(item.id, payload)
@@ -190,6 +194,7 @@ export default function ItemModal({ item, categories, locations, onClose, onSave
         <Field label="Notes">
           <Textarea rows={2} value={form.notes} onChange={e => set('notes', e.target.value)} />
         </Field>
+        <PhotoPicker value={photo} onChange={setPhoto} label="Photo" />
         <button type="submit" hidden />
       </form>
     </Dialog>

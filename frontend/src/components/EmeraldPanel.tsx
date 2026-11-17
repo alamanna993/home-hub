@@ -1,20 +1,22 @@
-import { forwardRef, FormEvent, KeyboardEvent, ReactNode, useEffect, useLayoutEffect, useRef } from 'react'
+import { forwardRef, FormEvent, KeyboardEvent, ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AlertCircle, ArrowUp, BookOpen, Check, Maximize2, RotateCcw } from 'lucide-react'
+import { AlertCircle, ArrowUp, Camera, Check, ChevronRight, Maximize2, Mic, RotateCcw, Undo2 } from 'lucide-react'
 import { Button, IconButton, SlideOver } from './ui'
 import { EmeraldMark } from './EmeraldMark'
 import { answeredBy, optionLabel, useEmeraldChat, type EmeraldMessage } from '../hooks/useEmeraldChat'
 import { useBrainStatus } from '../hooks/useBrainStatus'
+import { downscale } from './PhotoPicker'
+import { mediaUrl } from '../lib/api'
 import { cn } from '../lib/utils'
 
 const SUGGESTIONS = [
+  "What's for dinner tonight?",
   "What's running low?",
-  'What can I make for dinner tonight?',
-  'Where is the drill?',
+  'Put milk on the shopping list',
   "What's on the calendar this week?",
 ]
 
-/** The Emerald slide-over, available on every page via the top bar, ⌘K / Ctrl+K or "/". */
+/** Emerald: a bottom sheet on phones, a side panel on tablets and desktops. Open it from the tab bar, ⌘K / Ctrl+K or "/". */
 export default function EmeraldPanel() {
   const { panelOpen, openPanel, closePanel, reset } = useEmeraldChat()
   const { summary } = useBrainStatus()
@@ -44,10 +46,10 @@ export default function EmeraldPanel() {
       onClose={closePanel}
       title="Emerald"
       description={summary ?? 'Your family assistant'}
-      icon={<span className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald/10 text-emerald"><EmeraldMark size={18} /></span>}
+      icon={<span className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald/10 text-emerald"><EmeraldMark size={20} /></span>}
       headerActions={<>
         <IconButton icon={RotateCcw} label="New conversation" onClick={reset} />
-        <IconButton icon={Maximize2} label="Open full page" onClick={() => { closePanel(); navigate('/chat') }} />
+        <IconButton icon={Maximize2} label="Open full page" onClick={() => { closePanel(); navigate('/chat') }} className="max-md:hidden" />
       </>}
       initialFocus={composer}
       bodyClassName="flex flex-col"
@@ -58,10 +60,10 @@ export default function EmeraldPanel() {
   )
 }
 
-/** Message log with suggestions, pending-location buttons and "Answered by …" lines.
- *  Shared by the panel and (later) the full-page chat. */
+/** Message log with suggestions, change cards, recipe cards and "Answered by …" lines.
+ *  Shared by the panel and the full-page chat. */
 export function EmeraldConversation({ className }: { className?: string }) {
-  const { messages, loading, send, answer } = useEmeraldChat()
+  const { messages, loading, send, answer, undo } = useEmeraldChat()
   const end = useRef<HTMLDivElement>(null)
 
   useLayoutEffect(() => {
@@ -72,13 +74,13 @@ export function EmeraldConversation({ className }: { className?: string }) {
   return (
     <div className={cn('flex-1 space-y-5 px-4 py-4', className)}>
       <div className="space-y-5" aria-live="polite" aria-relevant="additions">
-        {messages.map(m => <MessageRow key={m.id} m={m} onAnswer={answer} disabled={loading} />)}
+        {messages.map(m => <MessageRow key={m.id} m={m} onAnswer={answer} onUndo={undo} disabled={loading} />)}
       </div>
 
       {messages.length === 1 && !loading && (
-        <div className="pl-9">
+        <div className="pl-10">
           <p className="mb-2 text-xs font-medium text-muted">Try asking</p>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-2">
             {SUGGESTIONS.map(s => (
               <Button key={s} size="sm" variant="secondary" onClick={() => send(s)}>{s}</Button>
             ))}
@@ -91,7 +93,7 @@ export function EmeraldConversation({ className }: { className?: string }) {
           <Avatar />
           <span className="flex items-center gap-1" aria-label="Emerald is thinking">
             {[0, 1, 2].map(i => (
-              <span key={i} className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald" style={{ animationDelay: `${i * 0.2}s` }} />
+              <span key={i} className="h-2 w-2 animate-pulse rounded-full bg-emerald" style={{ animationDelay: `${i * 0.2}s` }} />
             ))}
           </span>
         </div>
@@ -103,32 +105,84 @@ export function EmeraldConversation({ className }: { className?: string }) {
 
 function Avatar() {
   return (
-    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald/10 text-emerald">
-      <EmeraldMark size={14} />
+    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald/10 text-emerald">
+      <EmeraldMark size={16} />
     </span>
   )
 }
 
-function OpenRecipes({ recipes }: { recipes: { id: number; title: string }[] }) {
+function RecipeCards({ recipes }: { recipes: NonNullable<EmeraldMessage['recipes']> }) {
   const navigate = useNavigate()
   const { closePanel } = useEmeraldChat()
   return (
-    <div className="mt-2.5 flex flex-wrap gap-1.5">
+    <div className="mt-3 space-y-2">
       {recipes.map(r => (
-        <Button key={r.id} size="sm" variant="secondary" icon={BookOpen}
-          onClick={() => { closePanel(); navigate(`/recipes/${r.id}`) }}>
-          {recipes.length === 1 ? 'Open recipe' : `Open ${r.title}`}
-        </Button>
+        <button
+          key={r.id}
+          type="button"
+          onClick={() => { closePanel(); navigate(`/recipes/${r.id}`) }}
+          className="flex w-full items-center gap-3 overflow-hidden rounded-panel border border-line bg-canvas text-left active:bg-ink/[0.05]"
+        >
+          {r.image_url
+            ? <img src={mediaUrl(r.image_url, true)} alt="" className="h-16 w-20 shrink-0 object-cover" />
+            : <span className="flex h-16 w-20 shrink-0 items-center justify-center bg-ink/[0.05] text-xl" aria-hidden>🍽️</span>}
+          <span className="min-w-0 flex-1 py-2">
+            <span className="line-clamp-2 text-sm font-medium text-ink">{r.title}</span>
+            <span className="text-xs text-muted">Open recipe</span>
+          </span>
+          <ChevronRight size={18} aria-hidden className="mr-3 shrink-0 text-muted" />
+        </button>
       ))}
     </div>
   )
 }
 
-function MessageRow({ m, onAnswer, disabled }: { m: EmeraldMessage; onAnswer: (id: number, choice: string) => void; disabled: boolean }) {
+/** "Changed X" lines with an Undo that stays available for a day */
+function ChangeCard({ m, onUndo, disabled }: { m: EmeraldMessage; onUndo: (id: number) => void; disabled: boolean }) {
+  const c = m.changes
+  if (!c) return null
+  return (
+    <div className="mt-3 rounded-panel border border-line bg-canvas p-3">
+      <ul className="space-y-1 text-sm text-ink">
+        {c.lines.map((l, i) => (
+          <li key={i} className={cn('flex gap-2', c.undone && 'text-muted line-through')}>
+            <Check size={16} aria-hidden className="mt-1 shrink-0 text-emerald" />
+            <span>{l}</span>
+          </li>
+        ))}
+        {c.more > 0 && <li className="pl-6 text-xs text-muted">and {c.more} more</li>}
+      </ul>
+      <div className="mt-2">
+        {c.undone
+          ? <span className="text-xs text-muted">Undone</span>
+          : <Button size="sm" icon={Undo2} disabled={disabled} onClick={() => onUndo(m.id)}>Undo</Button>}
+      </div>
+    </div>
+  )
+}
+
+function OpenLinks({ open }: { open: NonNullable<EmeraldMessage['open']> }) {
+  const navigate = useNavigate()
+  const { closePanel } = useEmeraldChat()
+  return (
+    <div className="mt-3 flex flex-wrap gap-2">
+      {open.map(o => (
+        <Button key={o.path} size="sm" variant="secondary" onClick={() => { closePanel(); navigate(o.path) }}>{o.label}</Button>
+      ))}
+    </div>
+  )
+}
+
+function MessageRow({ m, onAnswer, onUndo, disabled }: {
+  m: EmeraldMessage; onAnswer: (id: number, choice: string) => void; onUndo: (id: number) => void; disabled: boolean
+}) {
   if (m.role === 'user') {
     return (
       <div className="flex justify-end">
-        <p className="ml-10 whitespace-pre-wrap break-words rounded-panel bg-action/[0.09] px-3 py-2 text-sm text-ink">{m.text}</p>
+        <div className="ml-10 max-w-full rounded-panel bg-action/[0.12] px-3.5 py-2.5 text-sm text-ink">
+          {m.image && <img src={mediaUrl(m.image)} alt="Photo you sent" className="mb-2 max-h-56 rounded-control object-cover" />}
+          {(m.text && !(m.image && m.text === 'Photo')) && <p className="whitespace-pre-wrap break-words">{m.text}</p>}
+        </div>
       </div>
     )
   }
@@ -143,7 +197,7 @@ function MessageRow({ m, onAnswer, disabled }: { m: EmeraldMessage; onAnswer: (i
         </p>
 
         {m.pending && m.pending.options.length > 0 && (
-          <div className="mt-2.5 flex flex-wrap gap-1.5" role="group" aria-label={m.answered ? 'Answered' : 'Choose an answer'}>
+          <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label={m.answered !== undefined ? 'Answered' : 'Choose an answer'}>
             {m.pending.options.map(opt => {
               const chosen = m.answered === opt
               return (
@@ -152,7 +206,7 @@ function MessageRow({ m, onAnswer, disabled }: { m: EmeraldMessage; onAnswer: (i
                   size="sm"
                   variant="secondary"
                   icon={chosen ? Check : undefined}
-                  disabled={!!m.answered || disabled}
+                  disabled={m.answered !== undefined || disabled}
                   onClick={() => onAnswer(m.id, opt)}
                   className={cn(chosen && 'border-action/50 text-action !opacity-100')}
                 >
@@ -163,9 +217,11 @@ function MessageRow({ m, onAnswer, disabled }: { m: EmeraldMessage; onAnswer: (i
           </div>
         )}
 
-        {m.recipes && m.recipes.length > 0 && <OpenRecipes recipes={m.recipes} />}
+        {m.recipes && m.recipes.length > 0 && <RecipeCards recipes={m.recipes} />}
+        <ChangeCard m={m} onUndo={onUndo} disabled={disabled} />
+        {m.open && m.open.length > 0 && <OpenLinks open={m.open} />}
 
-        {by && <p className="mt-1.5 text-xs text-muted">{by}</p>}
+        {by && <p className="mt-2 text-xs text-muted">{by}</p>}
       </div>
     </div>
   )
@@ -176,16 +232,31 @@ function renderInline(text: string): ReactNode[] {
   return text.split(/\*\*(.+?)\*\*/g).map((part, i) => (i % 2 ? <strong key={i} className="font-semibold">{part}</strong> : part))
 }
 
+// Browser speech recognition only works on https or localhost; elsewhere the keyboard's own dictation key does the job
+type SpeechCtor = new () => {
+  lang: string; interimResults: boolean; continuous: boolean
+  onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null
+  onend: (() => void) | null; onerror: (() => void) | null
+  start: () => void; stop: () => void
+}
+const Speech: SpeechCtor | undefined = typeof window !== 'undefined' && window.isSecureContext
+  ? ((window as unknown as { SpeechRecognition?: SpeechCtor; webkitSpeechRecognition?: SpeechCtor }).SpeechRecognition
+    ?? (window as unknown as { webkitSpeechRecognition?: SpeechCtor }).webkitSpeechRecognition)
+  : undefined
+
 export const EmeraldComposer = forwardRef<HTMLTextAreaElement, { className?: string }>(function EmeraldComposer({ className }, ref) {
-  const { send, loading, draft, setDraft } = useEmeraldChat()
+  const { send, sendPhoto, loading, draft, setDraft } = useEmeraldChat()
   const local = useRef<HTMLTextAreaElement | null>(null)
+  const cam = useRef<HTMLInputElement>(null)
+  const [listening, setListening] = useState(false)
+  const rec = useRef<InstanceType<SpeechCtor> | null>(null)
 
   // Grow with the text, up to ~6 lines
   useLayoutEffect(() => {
     const el = local.current
     if (!el) return
     el.style.height = 'auto'
-    el.style.height = Math.min(el.scrollHeight, 144) + 'px'
+    el.style.height = Math.min(el.scrollHeight + 2, 146) + 'px'
   }, [draft])
 
   function submit(e?: FormEvent) {
@@ -197,12 +268,39 @@ export const EmeraldComposer = forwardRef<HTMLTextAreaElement, { className?: str
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) submit(e)
+    // Enter sends on a keyboard; on a touch screen it is a new line (the Send button sends)
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && window.matchMedia('(pointer: fine)').matches) submit(e)
+  }
+
+  async function photo(file?: File) {
+    if (!file || loading) return
+    await sendPhoto(await downscale(file), draft.trim())
+    setDraft('')
+  }
+
+  function toggleMic() {
+    if (!Speech) return
+    if (listening) { rec.current?.stop(); return }
+    const r = new Speech()
+    r.lang = navigator.language || 'en-US'
+    r.interimResults = false
+    r.continuous = false
+    r.onresult = e => {
+      const said = Array.from(e.results).map(x => x[0].transcript).join(' ').trim()
+      if (said) setDraft(draft ? `${draft} ${said}` : said)
+    }
+    r.onend = () => setListening(false)
+    r.onerror = () => setListening(false)
+    rec.current = r
+    setListening(true)
+    r.start()
   }
 
   return (
     <form onSubmit={submit} className={cn('flex items-end gap-2 p-3', className)}>
       <label htmlFor="emerald-composer" className="sr-only">Message Emerald</label>
+      <IconButton icon={Camera} label="Send a photo" variant="secondary" onClick={() => cam.current?.click()} disabled={loading} />
+      <input ref={cam} type="file" accept="image/*" hidden onChange={e => { photo(e.target.files?.[0]); e.target.value = '' }} />
       <textarea
         id="emerald-composer"
         ref={el => {
@@ -214,20 +312,30 @@ export const EmeraldComposer = forwardRef<HTMLTextAreaElement, { className?: str
         value={draft}
         onChange={e => setDraft(e.target.value)}
         onKeyDown={onKeyDown}
-        placeholder="Ask Emerald or tell it what changed…"
+        placeholder={Speech ? 'Ask Emerald or tell it what changed…' : 'Type, or use your keyboard’s mic…'}
         className={cn(
-          'min-h-10 flex-1 resize-none rounded-control border border-line bg-canvas px-3 py-2 text-sm leading-5 text-ink placeholder:text-muted/80',
+          'min-h-11 flex-1 resize-none rounded-control border border-line bg-canvas px-3 py-2.5 text-sm leading-6 text-ink placeholder:text-muted/80',
           'focus:border-emerald focus:outline-none focus:ring-2 focus:ring-emerald/25 focus-visible:outline-none',
         )}
       />
+      {Speech && (
+        <IconButton
+          icon={Mic}
+          label={listening ? 'Stop listening' : 'Speak'}
+          variant="secondary"
+          onClick={toggleMic}
+          aria-pressed={listening}
+          className={cn(listening && '!border-emerald !text-emerald animate-pulse')}
+        />
+      )}
       <button
         type="submit"
         disabled={!draft.trim() || loading}
         aria-label="Send"
-        title="Send (Enter)"
-        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-control bg-emerald text-emerald-on transition-opacity hover:opacity-90 disabled:opacity-40"
+        title="Send"
+        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-control bg-emerald text-emerald-on transition-opacity hover:opacity-90 disabled:opacity-40"
       >
-        <ArrowUp size={18} aria-hidden />
+        <ArrowUp size={20} aria-hidden />
       </button>
     </form>
   )

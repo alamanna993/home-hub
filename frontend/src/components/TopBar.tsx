@@ -14,7 +14,7 @@ export default function TopBar() {
   const { openPanel } = useEmeraldChat()
 
   return (
-    <header className="hidden h-14 shrink-0 items-center gap-3 border-b border-line bg-surface px-6 lg:flex">
+    <header className="hidden h-14 shrink-0 items-center gap-3 border-b border-line bg-surface px-4 md:flex lg:px-6">
       <nav aria-label="Breadcrumb" className="min-w-0 flex-1">
         <ol className="flex items-center gap-1.5 text-sm">
           {group && <>
@@ -29,11 +29,11 @@ export default function TopBar() {
         type="button"
         onClick={() => openPanel()}
         aria-keyshortcuts="Meta+K Control+K /"
-        className="flex h-9 w-64 items-center gap-2 rounded-control border border-line bg-canvas px-2.5 text-sm text-muted transition-colors hover:border-emerald/50 hover:text-ink xl:w-80"
+        className="flex h-10 w-56 items-center gap-2 rounded-control border border-line bg-canvas px-2.5 text-sm text-muted transition-colors hover:border-emerald/50 hover:text-ink xl:w-80"
       >
         <EmeraldMark size={16} className="text-emerald" />
         <span className="flex-1 text-left">Ask Emerald…</span>
-        <span className="flex gap-0.5"><Kbd>{modKey}</Kbd><Kbd>K</Kbd></span>
+        <span className="hidden gap-0.5 lg:flex"><Kbd>{modKey}</Kbd><Kbd>K</Kbd></span>
       </button>
 
       <div className="flex items-center gap-1">
