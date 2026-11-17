@@ -194,6 +194,10 @@ def _apply(r: Recipe, data: dict):
             value = _clean(value)
         elif isinstance(value, str):
             value = value.strip() or None
+        if field == "image_url":
+            from routers import media
+            if value:   # a link from the web becomes a photo kept on this server
+                value = media.localize_url(value, data.get("source_url") or r.source_url)
         setattr(r, field, value)
     if not r.title:
         raise HTTPException(status_code=400, detail="A recipe needs a title")

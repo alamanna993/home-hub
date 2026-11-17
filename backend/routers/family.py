@@ -12,16 +12,18 @@ class MemberCreate(BaseModel):
     name: str
     icon: Optional[str] = None
     color: Optional[str] = None
+    photo_url: Optional[str] = None
 
 
 class MemberUpdate(BaseModel):
     name: Optional[str] = None
     icon: Optional[str] = None
     color: Optional[str] = None
+    photo_url: Optional[str] = None   # send "" to remove the photo
 
 
 def member_to_dict(m: FamilyMember) -> dict:
-    return {"id": m.id, "name": m.name, "icon": m.icon, "color": m.color}
+    return {"id": m.id, "name": m.name, "icon": m.icon, "color": m.color, "photo_url": m.photo_url}
 
 
 @router.get("/")
@@ -36,7 +38,7 @@ def create_member(data: MemberCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Name is required")
     if db.query(FamilyMember).filter(FamilyMember.name.ilike(name)).first():
         raise HTTPException(status_code=400, detail="That family member already exists")
-    member = FamilyMember(name=name, icon=data.icon, color=data.color)
+    member = FamilyMember(name=name, icon=data.icon, color=data.color, photo_url=data.photo_url)
     db.add(member)
     db.commit()
     db.refresh(member)
@@ -53,7 +55,8 @@ def update_member(member_id: int, data: MemberUpdate, db: Session = Depends(get_
         raise HTTPException(status_code=400, detail="Name cannot be empty")
     old_name = member.name
     for field, value in updates.items():
-        setattr(member, field, value.strip() if isinstance(value, str) else value)
+        value = value.strip() if isinstance(value, str) else value
+        setattr(member, field, (value or None) if field == "photo_url" else value)
     # Renaming a person carries their chores with them
     if "name" in updates and member.name != old_name:
         db.query(Chore).filter(Chore.assigned_to == old_name).update({"assigned_to": member.name})

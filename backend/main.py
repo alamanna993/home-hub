@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from database import engine, Base, settings as app_settings
-from routers import items, locations, categories, chat, calendar, meals, chores, family, recipes
+from routers import items, locations, categories, chat, calendar, meals, chores, family, recipes, media
 from routers import msgraph_router
 from routers import auth as auth_router
 from routers import settings as settings_router
@@ -33,6 +33,8 @@ app.include_router(meals.router, dependencies=[Depends(get_current_user)])
 app.include_router(chores.router, dependencies=[Depends(get_current_user)])
 app.include_router(family.router, dependencies=[Depends(get_current_user)])
 app.include_router(recipes.router, dependencies=[Depends(get_current_user)])
+app.include_router(media.public_router)  # photos are read by <img> tags, which can't send a login
+app.include_router(media.router, dependencies=[Depends(get_current_user)])
 app.include_router(msgraph_router.router)
 
 
@@ -131,6 +133,7 @@ def run_migrations():
         conn.execute(text("ALTER TABLE chores ADD COLUMN IF NOT EXISTS override_assigned_to VARCHAR(100)"))
         conn.execute(text("ALTER TABLE chores ADD COLUMN IF NOT EXISTS override_until DATE"))
         conn.execute(text("ALTER TABLE locations ADD COLUMN IF NOT EXISTS parent_id INTEGER REFERENCES locations(id)"))
+        conn.execute(text("ALTER TABLE family_members ADD COLUMN IF NOT EXISTS photo_url VARCHAR(500)"))
         conn.execute(text("ALTER TABLE items ADD COLUMN IF NOT EXISTS pack_size FLOAT"))
         conn.execute(text("ALTER TABLE items ADD COLUMN IF NOT EXISTS pack_unit VARCHAR(50)"))
         conn.execute(text("ALTER TABLE items ADD COLUMN IF NOT EXISTS open_amount FLOAT"))
@@ -149,6 +152,24 @@ def startup():
         recipes.purge_expired(db)  # Recently deleted keeps recipes for 30 days
     finally:
         db.close()
+    # Bring recipe photos that are still remote links onto this server (once, in the
+    # background so a slow site can't hold up startup)
+    import threading
+
+    def _localize():
+        s = Session(bind=engine)
+        try:
+            n = media.localize_existing(s)
+            if n:
+                logger.info("Saved %s recipe photos to this server", n)
+            swept = media.sweep_orphans(s)
+            if swept:
+                logger.info("Removed %s unused photo files", swept)
+        except Exception:  # noqa: BLE001
+            logger.exception("Photo localize pass failed")
+        finally:
+            s.close()
+    threading.Thread(target=_localize, daemon=True).start()
 
 
 @app.get("/health")

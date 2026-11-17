@@ -185,6 +185,7 @@ class ItemCreate(BaseModel):
     pack_size: Optional[float] = None
     pack_unit: Optional[str] = None
     open_amount: Optional[float] = None
+    image_url: Optional[str] = None   # '/media/<name>.jpg'
 
 
 class ItemUpdate(BaseModel):
@@ -241,6 +242,7 @@ def item_to_dict(item: Item) -> dict:
         "category": {"id": item.category.id, "name": item.category.name, "icon": item.category.icon, "color": item.category.color} if item.category else None,
         "notes": item.notes,
         "expiration_date": item.expiration_date.isoformat() if item.expiration_date else None,
+        "image_url": item.image_url,
         "pack_size": item.pack_size,
         "pack_unit": item.pack_unit,
         "open_amount": item.open_amount,
@@ -331,7 +333,7 @@ def create_item(data: ItemCreate, source: str = "dashboard", db: Session = Depen
     return item_to_dict(item)
 
 
-CLEARABLE = ("expiration_date", "open_amount", "pack_size", "pack_unit")
+CLEARABLE = ("expiration_date", "open_amount", "pack_size", "pack_unit", "image_url")
 
 
 @router.patch("/{item_id}")

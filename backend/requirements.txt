@@ -17,3 +17,5 @@ openai>=1.50.0
 icalendar==6.1.0
 recurring-ical-events==3.3.3
 beautifulsoup4==4.12.3
+Pillow==13.0.0
+pillow-heif==1.8.1

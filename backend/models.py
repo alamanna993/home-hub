@@ -89,6 +89,7 @@ class FamilyMember(Base):
     name = Column(String(100), unique=True, nullable=False)
     icon = Column(String(50), nullable=True)            # emoji avatar
     color = Column(String(20), nullable=True)
+    photo_url = Column(String(500), nullable=True)      # '/media/<name>.jpg'
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
