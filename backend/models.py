@@ -82,6 +82,21 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class LoginSession(Base):
+    """One signed-in device. Tokens carry its id, so it can be signed out from Settings,
+    and its expiry slides forward while the device keeps being used (all times UTC)."""
+    __tablename__ = "login_sessions"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    secret_hash = Column(String(64), nullable=False)    # sha256 of the cookie secret
+    device = Column(String(100))                         # "iPhone · Safari"
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_used_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+    revoked_at = Column(DateTime, nullable=True)
+
+
 class FamilyMember(Base):
     __tablename__ = "family_members"
 

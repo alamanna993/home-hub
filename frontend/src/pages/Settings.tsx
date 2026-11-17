@@ -1,9 +1,9 @@
 import { ReactNode, useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import axios from 'axios'
 import toast from 'react-hot-toast'
 import {
-  CalendarSync, Check, Copy, Database, Download, Eye, EyeOff, Plus, Send,
+  CalendarSync, Check, Copy, Database, Download, Eye, EyeOff, MonitorSmartphone, Plus, Send,
   SlidersHorizontal, Trash2, Users, Wrench,
 } from 'lucide-react'
 import {
@@ -16,10 +16,10 @@ import StoragePathInput from '../components/StoragePathInput'
 import { useAuth } from '../hooks/useAuth'
 import { useBrainStatus } from '../hooks/useBrainStatus'
 import {
-  createUser, deleteUser, errorText, getUsers, testBrain,
-  type AppUser, type Brain,
+  createUser, deleteUser, errorText, getDevices, getUsers, signOutDevice, testBrain,
+  type AppUser, type Brain, type SignedInDevice,
 } from '../lib/api'
-import { cn } from '../lib/utils'
+import { cn, timeAgo } from '../lib/utils'
 
 // ---------------------------------------------------------------------------
 // Settings data: one list from GET /settings/, saved field by field
@@ -157,7 +157,7 @@ export default function Settings() {
             </p>
           </>}
           {section === 'storage' && <StorageSection />}
-          {section === 'logins' && <><UsersSection /><PasswordSection /></>}
+          {section === 'logins' && <><UsersSection /><DevicesSection /><PasswordSection /></>}
           {section === 'maintenance' && <MaintenanceSection />}
         </div>
       </div>
@@ -770,6 +770,59 @@ function UsersSection() {
   )
 }
 
+function DevicesSection() {
+  const { logout } = useAuth()
+  const navigate = useNavigate()
+  const [devices, setDevices] = useState<SignedInDevice[] | null>(null)
+  const [removing, setRemoving] = useState<SignedInDevice | null>(null)
+
+  const load = () => getDevices().then(setDevices).catch(() => setDevices([]))
+  useEffect(() => { load() }, [])
+
+  async function signOut(d: SignedInDevice) {
+    try {
+      await signOutDevice(d.id)
+      if (d.current) { logout(); navigate('/login', { replace: true }); return }
+      toast.success(`Signed out ${d.device || 'that device'}`)
+      load()
+    } catch (e) { toast.error(errorText(e)) }
+  }
+
+  return (
+    <Panel title="Signed-in devices" padded={false}
+      description="A device stays signed in until it goes 6 months without being used. Sign one out if it's lost or no longer yours.">
+      {devices === null ? (
+        <p className="px-4 py-3 text-sm text-muted">Loading…</p>
+      ) : devices.length === 0 ? (
+        <p className="px-4 py-3 text-sm text-muted">
+          No devices yet. Each phone, tablet and computer shows up here the next time it opens HomeHub.
+        </p>
+      ) : (
+        <ul className="divide-y divide-line">
+          {devices.map(d => (
+            <li key={d.id} className="flex min-h-14 items-center gap-3 px-4 py-2">
+              <MonitorSmartphone size={20} aria-hidden className="shrink-0 text-muted" />
+              <div className="min-w-0 flex-1">
+                <p className="flex items-center gap-2 truncate text-sm font-medium text-ink">
+                  {d.device || 'Unknown device'}
+                  {d.current && <Badge tone="action">This device</Badge>}
+                </p>
+                <p className="truncate text-xs text-muted">{d.username} · last used {timeAgo(d.last_used_at)}</p>
+              </div>
+              <Button size="sm" onClick={() => setRemoving(d)}>Sign out</Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <ConfirmDialog open={!!removing} onClose={() => setRemoving(null)}
+        title={removing?.current ? 'Sign out this device?' : `Sign out ${removing?.device || 'this device'}?`}
+        description={removing?.current ? 'You will need to sign in again here.' : `${removing?.username} will need to sign in again on it.`}
+        confirmLabel="Sign out"
+        onConfirm={() => signOut(removing!)} />
+    </Panel>
+  )
+}
+
 function PasswordSection() {
   const [pw, setPw] = useState({ current: '', next: '', confirm: '' })
   const [busy, setBusy] = useState(false)
@@ -780,7 +833,7 @@ function PasswordSection() {
     setBusy(true)
     try {
       await axios.post('/api/auth/change-password', { current_password: pw.current, new_password: pw.next })
-      toast.success('Password changed'); setPw({ current: '', next: '', confirm: '' })
+      toast.success('Password changed. Your other devices are signed out.'); setPw({ current: '', next: '', confirm: '' })
     } catch (e) { toast.error(errorText(e, "Couldn't change the password")) } finally { setBusy(false) }
   }
 

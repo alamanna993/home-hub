@@ -1,21 +1,36 @@
 import axios from 'axios'
+import { clearSession, resumeSession } from './session'
 
 const api = axios.create({ baseURL: '/api' })
 
 // The instance snapshots global defaults at creation, so the login token set on
 // axios.defaults never reaches these requests — attach it per-request instead.
+// Always the latest token: it is refreshed behind the scenes (see lib/session.ts)
 function attachToken(config: any) {
   const token = localStorage.getItem('hh_token')
-  if (token && !config.headers.Authorization) config.headers.Authorization = `Bearer ${token}`
+  if (token) config.headers.Authorization = `Bearer ${token}`
   return config
 }
 
-function onUnauthorized(error: any) {
-  if (error.response?.status === 401 && !window.location.pathname.startsWith('/login')) {
-    localStorage.removeItem('hh_token')
-    localStorage.removeItem('hh_user')
-    window.location.href = '/login'
+/** A 401 first tries to get this device a fresh token and repeats the request once;
+ *  only a device that is really signed out goes to the sign-in page. */
+async function onUnauthorized(error: any) {
+  const config = error.config
+  const isAuthCall = /\/auth\/(login|resume|logout)/.test(config?.url || '')
+  if (error.response?.status !== 401 || isAuthCall || window.location.pathname.startsWith('/login')) {
+    return Promise.reject(error)
   }
+  if (!config._retried) {
+    const fresh = await resumeSession()
+    if (fresh && fresh !== 'offline') {
+      config._retried = true
+      config.headers.Authorization = `Bearer ${fresh.access_token}`
+      return axios.request(config)
+    }
+    if (fresh === 'offline') return Promise.reject(error)
+  }
+  clearSession()
+  window.location.href = '/login'
   return Promise.reject(error)
 }
 
@@ -281,6 +296,14 @@ export const createUser = (data: { username: string; password: string; role: str
 
 export const deleteUser = (id: number) =>
   api.delete(`/auth/users/${id}`).then(r => r.data)
+
+/** A phone, tablet or computer that is signed in (server times are UTC) */
+export interface SignedInDevice {
+  id: number; username: string; device: string | null
+  created_at: string; last_used_at: string; expires_at: string; current: boolean
+}
+export const getDevices = () => api.get<SignedInDevice[]>('/auth/sessions').then(r => r.data)
+export const signOutDevice = (id: number) => api.delete(`/auth/sessions/${id}`).then(r => r.data)
 
 // ---- Recipes ----
 export interface PantrySummary { have: number; total: number; missing: string[] }

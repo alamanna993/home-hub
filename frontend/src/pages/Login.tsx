@@ -1,12 +1,12 @@
 import { useState, FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Navigate, useNavigate } from 'react-router-dom'
 import { Eye, EyeOff } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { Button, Field, IconButton, Input } from '../components/ui'
 import { HomeHubMark } from '../components/EmeraldMark'
 
 export default function Login() {
-  const { login } = useAuth()
+  const { login, isAuthenticated, ready } = useAuth()
   const navigate = useNavigate()
   const [username, setUsername] = useState('admin')
   const [password, setPassword] = useState('')
@@ -21,12 +21,18 @@ export default function Login() {
     try {
       await login(username, password)
       navigate('/', { replace: true })
-    } catch {
-      setError('That username and password don’t match. Check them and try again.')
+    } catch (err) {
+      const status = (err as { response?: { status?: number } })?.response?.status
+      setError(status === 429
+        ? 'Too many wrong passwords. Wait a few minutes, then try again.'
+        : 'That username and password don’t match. Check them and try again.')
     } finally {
       setLoading(false)
     }
   }
+
+  // Already signed in on this device (for example brought back from its cookie)
+  if (ready && isAuthenticated) return <Navigate to="/" replace />
 
   return (
     <div className="flex min-h-app items-center justify-center bg-canvas px-4 py-10">
@@ -52,6 +58,7 @@ export default function Login() {
             </div>
           </Field>
           <Button type="submit" variant="primary" loading={loading} disabled={!password} className="w-full">Sign in</Button>
+          <p className="text-center text-xs text-muted">You'll stay signed in on this device for 6 months.</p>
         </form>
 
         <p className="mt-4 text-ui text-muted">
