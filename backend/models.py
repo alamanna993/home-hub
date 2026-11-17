@@ -177,3 +177,54 @@ class ChoreCompletion(Base):
     completed_at = Column(DateTime, default=datetime.utcnow)
 
     chore = relationship("Chore", back_populates="completions")
+
+
+class ShoppingItem(Base):
+    """One line on the shared shopping list. Checked lines stay until 'Done shopping'."""
+    __tablename__ = "shopping_items"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(200), nullable=False)
+    amount = Column(String(100), nullable=True)         # free text: "2", "1 gallon"
+    note = Column(Text, nullable=True)
+    source = Column(String(20), default="manual")       # manual | low_stock | recipe | emerald
+    item_id = Column(Integer, ForeignKey("items.id", ondelete="SET NULL"), nullable=True)
+    recipe_id = Column(Integer, ForeignKey("recipes.id", ondelete="SET NULL"), nullable=True)
+    checked_at = Column(DateTime, nullable=True)        # in the cart
+    added_by = Column(String(100), default="dashboard")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class ChatMessage(Base):
+    """Emerald's conversation memory: one thread per source ('dashboard:alex', 'telegram:Mom')."""
+    __tablename__ = "chat_messages"
+
+    id = Column(Integer, primary_key=True)
+    source = Column(String(100), nullable=False, index=True)
+    role = Column(String(10), nullable=False)            # user | emerald
+    text = Column(Text, nullable=False)
+    meta = Column(JSON, nullable=True)                   # brain, pending question, recipe/change cards
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class ChangeSet(Base):
+    """Everything one Emerald request changed, so it can be undone as a unit."""
+    __tablename__ = "changesets"
+
+    id = Column(Integer, primary_key=True)
+    source = Column(String(100))
+    label = Column(String(200))                          # the request, shortened
+    created_at = Column(DateTime, default=datetime.utcnow)
+    undone_at = Column(DateTime, nullable=True)
+
+
+class ChangeRow(Base):
+    __tablename__ = "change_rows"
+
+    id = Column(Integer, primary_key=True)               # order of changes within the set
+    changeset_id = Column(Integer, ForeignKey("changesets.id", ondelete="CASCADE"), nullable=False, index=True)
+    op = Column(String(10), nullable=False)              # create | update | delete
+    table_name = Column(String(50), nullable=False)
+    pk = Column(Integer, nullable=False)
+    before = Column(JSON, nullable=True)                 # update: old values of what changed; delete: the whole row
+    after = Column(JSON, nullable=True)                  # create: the whole row; update: new values of what changed

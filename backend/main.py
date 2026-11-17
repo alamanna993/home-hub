@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from database import engine, Base, settings as app_settings
-from routers import items, locations, categories, chat, calendar, meals, chores, family, recipes, media
+from routers import items, locations, categories, chat, calendar, meals, chores, family, recipes, media, shopping
 from routers import msgraph_router
 from routers import auth as auth_router
 from routers import settings as settings_router
@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 import logging
 
 logger = logging.getLogger("homehub")
+_scheduler = None
 
 app = FastAPI(title="HomeHub API", version="1.0.0")
 
@@ -33,6 +34,7 @@ app.include_router(meals.router, dependencies=[Depends(get_current_user)])
 app.include_router(chores.router, dependencies=[Depends(get_current_user)])
 app.include_router(family.router, dependencies=[Depends(get_current_user)])
 app.include_router(recipes.router, dependencies=[Depends(get_current_user)])
+app.include_router(shopping.router, dependencies=[Depends(get_current_user)])
 app.include_router(media.public_router)  # photos are read by <img> tags, which can't send a login
 app.include_router(media.router, dependencies=[Depends(get_current_user)])
 app.include_router(msgraph_router.router)
@@ -85,6 +87,8 @@ def seed_defaults(db: Session):
         ("lmstudio_model", app_settings.lmstudio_model),
         ("openai_model", app_settings.openai_model),
         ("claude_model", app_settings.claude_model),
+        ("briefing_enabled", "true"),    # sends only once Telegram is connected
+        ("briefing_time", "07:00"),
     ]
     for key, value in default_settings:
         if not db.query(Setting).filter_by(key=key).first():
@@ -170,6 +174,25 @@ def startup():
         finally:
             s.close()
     threading.Thread(target=_localize, daemon=True).start()
+
+    # The morning briefing: one check a minute; briefing.tick decides whether it's time
+    import asyncio
+    from apscheduler.schedulers.background import BackgroundScheduler
+    import briefing
+
+    def _briefing_tick():
+        s = Session(bind=engine)
+        try:
+            asyncio.run(briefing.tick(s))
+        except Exception:  # noqa: BLE001
+            logger.exception("Briefing tick failed")
+        finally:
+            s.close()
+    global _scheduler
+    if _scheduler is None:   # a reload must not leave two schedulers (two briefings)
+        _scheduler = BackgroundScheduler()
+        _scheduler.add_job(_briefing_tick, "interval", minutes=1, id="briefing", max_instances=1, coalesce=True)
+        _scheduler.start()
 
 
 @app.get("/health")
